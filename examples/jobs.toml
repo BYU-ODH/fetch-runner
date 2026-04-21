@@ -1,0 +1,20 @@
+# Sample fetch-runner config.
+# fetch-runner will refuse to load this unless the process is running as the
+# user named below (and not as root).
+
+[general]
+user = "deploy"
+poll_interval_seconds = 60
+
+[[jobs]]
+name = "api"
+path = "/srv/api"
+branch = "main"
+script = "/srv/api/deploy.sh"
+timeout_seconds = 600
+
+[[jobs]]
+name = "web"
+path = "/srv/web"
+branch = "production"
+script = "/srv/web/deploy.sh"

@@ -1,0 +1,73 @@
+[Unit]
+Description=fetch-runner: poll git branches and run scripts on new commits
+Documentation=https://github.com/BYU-ODH/fetch-runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ===========================================================================
+# CUSTOMIZE: edit the lines in this block for each deployment.
+# ===========================================================================
+
+# MUST match the `user` field in the jobs.toml this unit starts.
+# fetch-runner exits at startup if they do not match.
+User=deploy
+Group=deploy
+
+# Path to the fetch-runner binary and to the config file it should load.
+# If you installed fetch-runner from a venv, point ExecStart at that venv's
+# bin/fetch-runner. The config path is positional.
+ExecStart=/usr/local/bin/fetch-runner /etc/fetch-runner/jobs.toml
+
+# Every directory your deploy scripts need to write to must appear here
+# (the git repos you poll, plus any app state they touch). Separate with
+# spaces. The rest of the filesystem is read-only thanks to ProtectSystem.
+ReadWritePaths=/srv
+
+# ===========================================================================
+# DO NOT MODIFY below this line unless you know exactly why.
+# These settings are the security hardening that makes this service safe
+# to leave running. Removing any of them weakens the sandbox.
+# ===========================================================================
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+
+StandardOutput=journal
+StandardError=journal
+
+# Block privilege escalation; the deploy user never needs more than it has.
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Filesystem isolation.
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+
+# Kernel / namespace hardening.
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Syscall filter.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
