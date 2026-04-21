@@ -30,9 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="USER",
         help="print the canonical guard block for USER and exit",
     )
-    p.add_argument(
-        "-v", "--verbose", action="store_true", help="enable debug logging"
-    )
+    p.add_argument("-v", "--verbose", action="store_true", help="enable debug logging")
     p.add_argument("--version", action="version", version=f"fetch-runner {__version__}")
     args = p.parse_args(argv)
 
@@ -56,10 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.check:
-        print(
-            f"ok: user={cfg.user} jobs={len(cfg.jobs)} "
-            f"poll={cfg.poll_interval_seconds}s"
-        )
+        print(f"ok: user={cfg.user} jobs={len(cfg.jobs)} " f"poll={cfg.poll_interval_seconds}s")
         return 0
 
     runner = Runner(cfg)

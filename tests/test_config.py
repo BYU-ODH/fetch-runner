@@ -113,9 +113,7 @@ script = "{script}"
 
 
 def test_load_rejects_unknown_job_key(tmp_path: Path):
-    cfg_path = _base_cfg(
-        tmp_path, user=current_user(), extra_job_lines='command = "rm -rf /"'
-    )
+    cfg_path = _base_cfg(tmp_path, user=current_user(), extra_job_lines='command = "rm -rf /"')
     with pytest.raises(ConfigError, match="unknown keys"):
         load_config(cfg_path)
 

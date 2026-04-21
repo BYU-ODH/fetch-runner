@@ -20,8 +20,26 @@ module-name = "fetch_runner"
 module-root = "src"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "pre-commit>=3",
+    "ruff>=0.8",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fetch_runner"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+force-sort-within-sections = false
+combine-as-imports = true

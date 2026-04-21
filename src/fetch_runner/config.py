@@ -5,6 +5,7 @@ Loading a config is a security decision: if any check fails, we raise
 operational pattern is ``fetch-runner --check jobs.toml`` as part of any
 deploy, so that config errors surface before a restart.
 """
+
 from __future__ import annotations
 
 import os
@@ -65,9 +66,7 @@ def load_config(path: Path) -> Config:
     _reject_unknown(general, _ALLOWED_GENERAL, f"{path}: [general]")
 
     user = _require_str(general, "user", "[general]", path)
-    poll_interval = _require_int(
-        general, "poll_interval_seconds", "[general]", path, minimum=1
-    )
+    poll_interval = _require_int(general, "poll_interval_seconds", "[general]", path, minimum=1)
 
     # Enforce user match before doing anything else: an operator who dropped
     # a jobs.toml for the wrong service account should see an immediate
@@ -100,15 +99,11 @@ def load_config(path: Path) -> Config:
             raise ConfigError(f"{path}: duplicate job path {repo_path}")
         seen_paths.add(repo_path)
         if not (repo_path / ".git").exists():
-            raise ConfigError(
-                f"{path}: {section}.path {repo_path} is not a git repository"
-            )
+            raise ConfigError(f"{path}: {section}.path {repo_path} is not a git repository")
 
         branch = _require_str(entry, "branch", section, path)
         if branch.startswith("-") or any(c in _UNSAFE_BRANCH_CHARS for c in branch):
-            raise ConfigError(
-                f"{path}: {section}.branch contains unsafe characters: {branch!r}"
-            )
+            raise ConfigError(f"{path}: {section}.branch contains unsafe characters: {branch!r}")
         if len(branch) > 128:
             raise ConfigError(f"{path}: {section}.branch too long")
 
@@ -118,9 +113,7 @@ def load_config(path: Path) -> Config:
         timeout = entry.get("timeout_seconds")
         if timeout is not None:
             if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
-                raise ConfigError(
-                    f"{path}: {section}.timeout_seconds must be a positive integer"
-                )
+                raise ConfigError(f"{path}: {section}.timeout_seconds must be a positive integer")
 
         jobs.append(
             Job(
@@ -142,14 +135,10 @@ def _validate_script_file(script: Path, user: str, section: str, cfg_path: Path)
         raise ConfigError(f"{cfg_path}: {section}.script {script} is not executable")
     st = script.stat()
     if st.st_mode & stat.S_IWOTH:
-        raise ConfigError(
-            f"{cfg_path}: {section}.script {script} is world-writable; refusing"
-        )
+        raise ConfigError(f"{cfg_path}: {section}.script {script} is world-writable; refusing")
     check = validate_script_guard(script, user)
     if not check.ok:
-        raise ConfigError(
-            f"{cfg_path}: {section}.script failed guard validation: {check.reason}"
-        )
+        raise ConfigError(f"{cfg_path}: {section}.script failed guard validation: {check.reason}")
 
 
 def _reject_unknown(d: dict, allowed: set[str], where: str) -> None:
@@ -161,15 +150,11 @@ def _reject_unknown(d: dict, allowed: set[str], where: str) -> None:
 def _require_str(d: dict, key: str, section: str, cfg_path: Path) -> str:
     v = d.get(key)
     if not isinstance(v, str) or not v:
-        raise ConfigError(
-            f"{cfg_path}: {section}.{key} must be a non-empty string"
-        )
+        raise ConfigError(f"{cfg_path}: {section}.{key} must be a non-empty string")
     return v
 
 
-def _require_int(
-    d: dict, key: str, section: str, cfg_path: Path, *, minimum: int
-) -> int:
+def _require_int(d: dict, key: str, section: str, cfg_path: Path, *, minimum: int) -> int:
     v = d.get(key)
     if not isinstance(v, int) or isinstance(v, bool):
         raise ConfigError(f"{cfg_path}: {section}.{key} must be an integer")

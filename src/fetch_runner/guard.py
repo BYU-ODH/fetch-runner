@@ -14,6 +14,7 @@ The guard is written in portable POSIX shell, so it works under both
 ``#!/bin/sh`` and ``#!/bin/bash`` (and anything else that speaks POSIX
 ``test``/``printf``).
 """
+
 from __future__ import annotations
 
 import os
@@ -24,14 +25,15 @@ from pathlib import Path
 GUARD_BEGIN_PREFIX = "# >>> fetch-runner-guard:BEGIN"
 GUARD_END = "# <<< fetch-runner-guard:END"
 
-_GUARD_TEMPLATE = """\
-# >>> fetch-runner-guard:BEGIN user={user}
-if [ "$(whoami)" != "{user}" ] || [ "$(id -u)" -eq 0 ]; then
-    printf 'fetch-runner-guard: refusing to run as %s (uid %s); required: {user}, non-root\\n' "$(whoami)" "$(id -u)" >&2
-    exit 1
-fi
-# <<< fetch-runner-guard:END
-"""
+_GUARD_TEMPLATE = (
+    "# >>> fetch-runner-guard:BEGIN user={user}\n"
+    'if [ "$(whoami)" != "{user}" ] || [ "$(id -u)" -eq 0 ]; then\n'
+    "    printf 'fetch-runner-guard: refusing to run as %s (uid %s);"
+    ' required: {user}, non-root\\n\' "$(whoami)" "$(id -u)" >&2\n'
+    "    exit 1\n"
+    "fi\n"
+    "# <<< fetch-runner-guard:END\n"
+)
 
 
 class GuardError(Exception):
@@ -68,9 +70,7 @@ def require_runtime_user(expected: str) -> None:
     _assert_safe_user(expected)
     actual = current_user()
     if actual != expected:
-        raise GuardError(
-            f"runtime user {actual!r} does not match configured user {expected!r}"
-        )
+        raise GuardError(f"runtime user {actual!r} does not match configured user {expected!r}")
     if os.getuid() == 0:
         raise GuardError("refusing to run as root (uid 0)")
 
@@ -109,13 +109,10 @@ def validate_script_guard(script: Path, user: str) -> GuardCheck:
             continue
         return GuardCheck(
             False,
-            f"{script}:{i + 1}: guard must come before any executable code; "
-            f"found {lines[i]!r}",
+            f"{script}:{i + 1}: guard must come before any executable code; " f"found {lines[i]!r}",
         )
     else:
-        return GuardCheck(
-            False, f"{script}: canonical guard block for user {user!r} not found"
-        )
+        return GuardCheck(False, f"{script}: canonical guard block for user {user!r} not found")
 
     expected = render_guard(user).splitlines()
     for k, want in enumerate(expected):
@@ -129,8 +126,7 @@ def validate_script_guard(script: Path, user: str) -> GuardCheck:
         if got != want:
             return GuardCheck(
                 False,
-                f"{script}:{line_no}: guard block mismatch; "
-                f"expected {want!r}, got {got!r}",
+                f"{script}:{line_no}: guard block mismatch; " f"expected {want!r}, got {got!r}",
             )
     return GuardCheck(True)
 
@@ -138,9 +134,7 @@ def validate_script_guard(script: Path, user: str) -> GuardCheck:
 # Conservative allowlist; keeps us safe if a user name is ever interpolated
 # into shell text. POSIX permits a broader set but this covers real-world
 # Linux account names.
-_ALLOWED_USER_CHARS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
-)
+_ALLOWED_USER_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
 
 
 def _assert_safe_user(user: str) -> None:
@@ -152,6 +146,4 @@ def _assert_safe_user(user: str) -> None:
         raise GuardError(f"user name may not start with '-': {user!r}")
     bad = [c for c in user if c not in _ALLOWED_USER_CHARS]
     if bad:
-        raise GuardError(
-            f"user name contains disallowed characters {sorted(set(bad))!r}: {user!r}"
-        )
+        raise GuardError(f"user name contains disallowed characters {sorted(set(bad))!r}: {user!r}")

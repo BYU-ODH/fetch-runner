@@ -40,9 +40,7 @@ def _write(path: Path, body: str) -> Path:
 def test_validate_script_guard_happy(tmp_path: Path):
     script = _write(
         tmp_path / "deploy.sh",
-        "#!/bin/bash\n# a comment\n\n"
-        + render_guard("deploy")
-        + "echo hi\n",
+        "#!/bin/bash\n# a comment\n\n" + render_guard("deploy") + "echo hi\n",
     )
     assert validate_script_guard(script, "deploy").ok
 
@@ -67,9 +65,7 @@ def test_validate_script_guard_code_without_guard(tmp_path: Path):
 
 
 def test_validate_script_guard_wrong_user(tmp_path: Path):
-    script = _write(
-        tmp_path / "s.sh", "#!/bin/bash\n" + render_guard("otheruser") + "echo hi\n"
-    )
+    script = _write(tmp_path / "s.sh", "#!/bin/bash\n" + render_guard("otheruser") + "echo hi\n")
     result = validate_script_guard(script, "deploy")
     assert not result.ok
     assert "different user" in result.reason

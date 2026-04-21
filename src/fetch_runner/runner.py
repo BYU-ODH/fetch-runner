@@ -11,13 +11,13 @@ Per job, on each tick:
 The initial cursor is the current local branch SHA, so restarting the
 service does not replay the last deploy.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import subprocess
 import threading
-from pathlib import Path
 
 from fetch_runner.config import Config, Job
 from fetch_runner.git_ops import GitError, checkout, current_commit, fetch
@@ -62,7 +62,9 @@ class Runner:
             except GitError as e:
                 log.warning(
                     "job %s: cannot read initial commit for %s: %s",
-                    job.name, job.branch, e,
+                    job.name,
+                    job.branch,
+                    e,
                 )
                 sha = ""
             self._last_commit[job.name] = sha
@@ -80,7 +82,9 @@ class Runner:
             return
         log.info(
             "job %s: new commit %s -> %s",
-            job.name, _short(last) or "<init>", _short(remote),
+            job.name,
+            _short(last) or "<init>",
+            _short(remote),
         )
         try:
             checkout(job.path, job.branch, remote)
@@ -93,7 +97,9 @@ class Runner:
         if not check.ok:
             log.error(
                 "job %s: script at %s failed guard check after checkout: %s",
-                job.name, remote, check.reason,
+                job.name,
+                remote,
+                check.reason,
             )
             self._last_commit[job.name] = remote
             return
@@ -118,9 +124,7 @@ class Runner:
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            log.error(
-                "job %s: script timed out after %ss", job.name, job.timeout_seconds
-            )
+            log.error("job %s: script timed out after %ss", job.name, job.timeout_seconds)
             return
         except OSError as e:
             log.error("job %s: cannot execute script: %s", job.name, e)

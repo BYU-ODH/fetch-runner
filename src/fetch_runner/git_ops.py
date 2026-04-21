@@ -4,6 +4,7 @@ Subprocess calls use an argv list (never ``shell=True``); repo paths are
 passed with ``-C`` and branch names have already been validated against an
 unsafe-character set at config load.
 """
+
 from __future__ import annotations
 
 import subprocess
