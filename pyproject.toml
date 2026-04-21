@@ -41,5 +41,5 @@ select = ["E", "F", "I", "W", "UP", "B"]
 [tool.ruff.lint.isort]
 known-first-party = ["fetch_runner"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+force-single-line = true
 force-sort-within-sections = false
-combine-as-imports = true

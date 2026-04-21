@@ -19,8 +19,12 @@ import os
 import subprocess
 import threading
 
-from fetch_runner.config import Config, Job
-from fetch_runner.git_ops import GitError, checkout, current_commit, fetch
+from fetch_runner.config import Config
+from fetch_runner.config import Job
+from fetch_runner.git_ops import GitError
+from fetch_runner.git_ops import checkout
+from fetch_runner.git_ops import current_commit
+from fetch_runner.git_ops import fetch
 from fetch_runner.guard import validate_script_guard
 
 log = logging.getLogger("fetch_runner")

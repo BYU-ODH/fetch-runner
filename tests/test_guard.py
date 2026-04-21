@@ -6,13 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from fetch_runner.guard import (
-    GuardError,
-    current_user,
-    render_guard,
-    require_runtime_user,
-    validate_script_guard,
-)
+from fetch_runner.guard import GuardError
+from fetch_runner.guard import current_user
+from fetch_runner.guard import render_guard
+from fetch_runner.guard import require_runtime_user
+from fetch_runner.guard import validate_script_guard
 
 
 def test_render_guard_embeds_user_everywhere():

@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from fetch_runner.config import ConfigError, load_config
-from fetch_runner.guard import current_user, render_guard
+from fetch_runner.config import ConfigError
+from fetch_runner.config import load_config
+from fetch_runner.guard import current_user
+from fetch_runner.guard import render_guard
 
 
 @pytest.fixture(autouse=True)

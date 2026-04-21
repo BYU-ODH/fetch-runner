@@ -14,11 +14,9 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from fetch_runner.guard import (
-    GuardError,
-    require_runtime_user,
-    validate_script_guard,
-)
+from fetch_runner.guard import GuardError
+from fetch_runner.guard import require_runtime_user
+from fetch_runner.guard import validate_script_guard
 
 
 class ConfigError(Exception):

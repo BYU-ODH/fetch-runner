@@ -7,8 +7,10 @@ import sys
 from pathlib import Path
 
 from fetch_runner import __version__
-from fetch_runner.config import ConfigError, load_config
-from fetch_runner.guard import GuardError, render_guard
+from fetch_runner.config import ConfigError
+from fetch_runner.config import load_config
+from fetch_runner.guard import GuardError
+from fetch_runner.guard import render_guard
 from fetch_runner.runner import Runner
 
 log = logging.getLogger("fetch_runner")
@@ -54,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.check:
-        print(f"ok: user={cfg.user} jobs={len(cfg.jobs)} " f"poll={cfg.poll_interval_seconds}s")
+        print(f"ok: user={cfg.user} jobs={len(cfg.jobs)} poll={cfg.poll_interval_seconds}s")
         return 0
 
     runner = Runner(cfg)

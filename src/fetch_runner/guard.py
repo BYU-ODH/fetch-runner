@@ -109,7 +109,7 @@ def validate_script_guard(script: Path, user: str) -> GuardCheck:
             continue
         return GuardCheck(
             False,
-            f"{script}:{i + 1}: guard must come before any executable code; " f"found {lines[i]!r}",
+            f"{script}:{i + 1}: guard must come before any executable code; found {lines[i]!r}",
         )
     else:
         return GuardCheck(False, f"{script}: canonical guard block for user {user!r} not found")
@@ -126,7 +126,7 @@ def validate_script_guard(script: Path, user: str) -> GuardCheck:
         if got != want:
             return GuardCheck(
                 False,
-                f"{script}:{line_no}: guard block mismatch; " f"expected {want!r}, got {got!r}",
+                f"{script}:{line_no}: guard block mismatch; expected {want!r}, got {got!r}",
             )
     return GuardCheck(True)
 
