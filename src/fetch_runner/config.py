@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fetch_runner.guard import GuardError
-from fetch_runner.guard import require_runtime_user
-from fetch_runner.guard import validate_script_guard
+from fetch_runner.guard import require_expected_runtime_user
+from fetch_runner.guard import validate_canonical_script_guard
 
 
 class ConfigError(Exception):
@@ -24,138 +24,209 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
-class Job:
+class ConfiguredJob:
     name: str
-    path: Path
-    branch: str
-    script: Path
-    timeout_seconds: int | None
+    repo_path: Path
+    branch_name: str
+    script_path: Path
+    script_timeout_seconds: int | None
 
 
 @dataclass(frozen=True)
-class Config:
-    user: str
+class RunnerConfig:
+    runtime_user: str
     poll_interval_seconds: int
-    jobs: tuple[Job, ...]
+    jobs: tuple[ConfiguredJob, ...]
 
 
-_ALLOWED_TOP = {"general", "jobs"}
-_ALLOWED_GENERAL = {"user", "poll_interval_seconds"}
-_ALLOWED_JOB = {"name", "path", "branch", "script", "timeout_seconds"}
+_ALLOWED_TOP_LEVEL_KEYS = {"general", "jobs"}
+_ALLOWED_GENERAL_KEYS = {"user", "poll_interval_seconds"}
+_ALLOWED_JOB_KEYS = {"name", "path", "branch", "script", "timeout_seconds"}
 
-_UNSAFE_BRANCH_CHARS = frozenset(" \t\n\r\x00'\";|&`$<>()[]{}\\*?")
+_DISALLOWED_BRANCH_CHARACTERS = frozenset(" \t\n\r\x00'\";|&`$<>()[]{}\\*?")
 
 
-def load_config(path: Path) -> Config:
+def load_config(config_path: Path) -> RunnerConfig:
     try:
-        raw_text = path.read_text()
+        config_text = config_path.read_text()
     except OSError as e:
-        raise ConfigError(f"cannot read {path}: {e}") from e
+        raise ConfigError(f"cannot read {config_path}: {e}") from e
     try:
-        raw = tomllib.loads(raw_text)
+        parsed_toml = tomllib.loads(config_text)
     except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"invalid TOML in {path}: {e}") from e
+        raise ConfigError(f"invalid TOML in {config_path}: {e}") from e
 
-    _reject_unknown(raw, _ALLOWED_TOP, f"{path}: top-level")
+    _reject_unknown_keys(parsed_toml, _ALLOWED_TOP_LEVEL_KEYS, f"{config_path}: top-level")
 
-    general = raw.get("general")
-    if not isinstance(general, dict):
-        raise ConfigError(f"{path}: missing [general] section")
-    _reject_unknown(general, _ALLOWED_GENERAL, f"{path}: [general]")
+    general_section = parsed_toml.get("general")
+    if not isinstance(general_section, dict):
+        raise ConfigError(f"{config_path}: missing [general] section")
+    _reject_unknown_keys(general_section, _ALLOWED_GENERAL_KEYS, f"{config_path}: [general]")
 
-    user = _require_str(general, "user", "[general]", path)
-    poll_interval = _require_int(general, "poll_interval_seconds", "[general]", path, minimum=1)
+    runtime_user = _require_non_empty_string(
+        general_section,
+        "user",
+        "[general]",
+        config_path,
+    )
+    poll_interval_seconds = _require_integer_at_least(
+        general_section,
+        "poll_interval_seconds",
+        "[general]",
+        config_path,
+        minimum=1,
+    )
 
     # Enforce user match before doing anything else: an operator who dropped
     # a jobs.toml for the wrong service account should see an immediate
     # error, not have individual jobs quietly skipped.
     try:
-        require_runtime_user(user)
+        require_expected_runtime_user(runtime_user)
     except GuardError as e:
-        raise ConfigError(f"{path}: {e}") from e
+        raise ConfigError(f"{config_path}: {e}") from e
 
-    raw_jobs = raw.get("jobs")
-    if not isinstance(raw_jobs, list) or not raw_jobs:
-        raise ConfigError(f"{path}: at least one [[jobs]] entry is required")
+    raw_job_sections = parsed_toml.get("jobs")
+    if not isinstance(raw_job_sections, list) or not raw_job_sections:
+        raise ConfigError(f"{config_path}: at least one [[jobs]] entry is required")
 
     seen_names: set[str] = set()
-    seen_paths: set[Path] = set()
-    jobs: list[Job] = []
-    for i, entry in enumerate(raw_jobs):
-        section = f"[[jobs]] #{i}"
-        if not isinstance(entry, dict):
-            raise ConfigError(f"{path}: {section} is not a table")
-        _reject_unknown(entry, _ALLOWED_JOB, f"{path}: {section}")
+    seen_repo_paths: set[Path] = set()
+    configured_jobs: list[ConfiguredJob] = []
+    for job_index, raw_job_section in enumerate(raw_job_sections):
+        section_label = f"[[jobs]] #{job_index}"
+        if not isinstance(raw_job_section, dict):
+            raise ConfigError(f"{config_path}: {section_label} is not a table")
+        _reject_unknown_keys(raw_job_section, _ALLOWED_JOB_KEYS, f"{config_path}: {section_label}")
 
-        name = _require_str(entry, "name", section, path)
-        if name in seen_names:
-            raise ConfigError(f"{path}: duplicate job name {name!r}")
-        seen_names.add(name)
+        job_name = _require_non_empty_string(raw_job_section, "name", section_label, config_path)
+        if job_name in seen_names:
+            raise ConfigError(f"{config_path}: duplicate job name {job_name!r}")
+        seen_names.add(job_name)
 
-        repo_path = Path(_require_str(entry, "path", section, path)).resolve()
-        if repo_path in seen_paths:
-            raise ConfigError(f"{path}: duplicate job path {repo_path}")
-        seen_paths.add(repo_path)
+        # Resolve early so duplicate-path detection is based on the real target
+        # path, not on whatever relative spelling happened to appear in TOML.
+        repo_path = Path(
+            _require_non_empty_string(raw_job_section, "path", section_label, config_path)
+        ).resolve()
+        # Only one job may own a worktree. Two jobs resetting the same checkout
+        # to different commits would create non-deterministic deploy behavior.
+        if repo_path in seen_repo_paths:
+            raise ConfigError(f"{config_path}: duplicate job path {repo_path}")
+        seen_repo_paths.add(repo_path)
         if not (repo_path / ".git").exists():
-            raise ConfigError(f"{path}: {section}.path {repo_path} is not a git repository")
+            raise ConfigError(
+                f"{config_path}: {section_label}.path {repo_path} is not a git repository"
+            )
 
-        branch = _require_str(entry, "branch", section, path)
-        if branch.startswith("-") or any(c in _UNSAFE_BRANCH_CHARS for c in branch):
-            raise ConfigError(f"{path}: {section}.branch contains unsafe characters: {branch!r}")
-        if len(branch) > 128:
-            raise ConfigError(f"{path}: {section}.branch too long")
+        branch_name = _require_non_empty_string(
+            raw_job_section,
+            "branch",
+            section_label,
+            config_path,
+        )
+        # Branch names are passed as argv entries, but git still interprets
+        # leading dashes and a wide range of refname syntax. A conservative
+        # character filter keeps the allowed surface area easy to reason about.
+        if branch_name.startswith("-") or any(
+            char in _DISALLOWED_BRANCH_CHARACTERS for char in branch_name
+        ):
+            raise ConfigError(
+                f"{config_path}: {section_label}.branch contains unsafe characters: {branch_name!r}"
+            )
+        if len(branch_name) > 128:
+            raise ConfigError(f"{config_path}: {section_label}.branch too long")
 
-        script_path = Path(_require_str(entry, "script", section, path)).resolve()
-        _validate_script_file(script_path, user, section, path)
+        script_path = Path(
+            _require_non_empty_string(raw_job_section, "script", section_label, config_path)
+        ).resolve()
+        _validate_job_script_file(script_path, runtime_user, section_label, config_path)
 
-        timeout = entry.get("timeout_seconds")
-        if timeout is not None:
-            if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
-                raise ConfigError(f"{path}: {section}.timeout_seconds must be a positive integer")
+        script_timeout_seconds = raw_job_section.get("timeout_seconds")
+        if script_timeout_seconds is not None:
+            if (
+                not isinstance(script_timeout_seconds, int)
+                or isinstance(script_timeout_seconds, bool)
+                or script_timeout_seconds <= 0
+            ):
+                raise ConfigError(
+                    f"{config_path}: {section_label}.timeout_seconds must be a positive integer"
+                )
 
-        jobs.append(
-            Job(
-                name=name,
-                path=repo_path,
-                branch=branch,
-                script=script_path,
-                timeout_seconds=timeout,
+        configured_jobs.append(
+            ConfiguredJob(
+                name=job_name,
+                repo_path=repo_path,
+                branch_name=branch_name,
+                script_path=script_path,
+                script_timeout_seconds=script_timeout_seconds,
             )
         )
 
-    return Config(user=user, poll_interval_seconds=poll_interval, jobs=tuple(jobs))
+    return RunnerConfig(
+        runtime_user=runtime_user,
+        poll_interval_seconds=poll_interval_seconds,
+        jobs=tuple(configured_jobs),
+    )
 
 
-def _validate_script_file(script: Path, user: str, section: str, cfg_path: Path) -> None:
-    if not script.is_file():
-        raise ConfigError(f"{cfg_path}: {section}.script {script} does not exist")
-    if not os.access(script, os.X_OK):
-        raise ConfigError(f"{cfg_path}: {section}.script {script} is not executable")
-    st = script.stat()
-    if st.st_mode & stat.S_IWOTH:
-        raise ConfigError(f"{cfg_path}: {section}.script {script} is world-writable; refusing")
-    check = validate_script_guard(script, user)
-    if not check.ok:
-        raise ConfigError(f"{cfg_path}: {section}.script failed guard validation: {check.reason}")
+def _validate_job_script_file(
+    script_path: Path,
+    runtime_user: str,
+    section_label: str,
+    config_path: Path,
+) -> None:
+    """Run the startup-time script checks.
+
+    This is intentionally duplicated later in the runner after checkout. The
+    load-time check catches bad deployments before the service starts; the
+    post-checkout check catches a newly fetched commit that changed the script.
+    """
+    if not script_path.is_file():
+        raise ConfigError(f"{config_path}: {section_label}.script {script_path} does not exist")
+    if not os.access(script_path, os.X_OK):
+        raise ConfigError(f"{config_path}: {section_label}.script {script_path} is not executable")
+    script_stat = script_path.stat()
+    if script_stat.st_mode & stat.S_IWOTH:
+        raise ConfigError(
+            f"{config_path}: {section_label}.script {script_path} is world-writable; refusing"
+        )
+    guard_validation = validate_canonical_script_guard(script_path, runtime_user)
+    if not guard_validation.is_valid:
+        raise ConfigError(
+            f"{config_path}: {section_label}.script failed guard validation: "
+            f"{guard_validation.error_reason}"
+        )
 
 
-def _reject_unknown(d: dict, allowed: set[str], where: str) -> None:
-    extra = set(d) - allowed
-    if extra:
-        raise ConfigError(f"{where}: unknown keys {sorted(extra)!r}")
+def _reject_unknown_keys(raw_section: dict, allowed_keys: set[str], section_label: str) -> None:
+    unknown_keys = set(raw_section) - allowed_keys
+    if unknown_keys:
+        raise ConfigError(f"{section_label}: unknown keys {sorted(unknown_keys)!r}")
 
 
-def _require_str(d: dict, key: str, section: str, cfg_path: Path) -> str:
-    v = d.get(key)
-    if not isinstance(v, str) or not v:
-        raise ConfigError(f"{cfg_path}: {section}.{key} must be a non-empty string")
-    return v
+def _require_non_empty_string(
+    raw_section: dict,
+    key: str,
+    section_label: str,
+    config_path: Path,
+) -> str:
+    value = raw_section.get(key)
+    if not isinstance(value, str) or not value:
+        raise ConfigError(f"{config_path}: {section_label}.{key} must be a non-empty string")
+    return value
 
 
-def _require_int(d: dict, key: str, section: str, cfg_path: Path, *, minimum: int) -> int:
-    v = d.get(key)
-    if not isinstance(v, int) or isinstance(v, bool):
-        raise ConfigError(f"{cfg_path}: {section}.{key} must be an integer")
-    if v < minimum:
-        raise ConfigError(f"{cfg_path}: {section}.{key} must be >= {minimum}")
-    return v
+def _require_integer_at_least(
+    raw_section: dict,
+    key: str,
+    section_label: str,
+    config_path: Path,
+    *,
+    minimum: int,
+) -> int:
+    value = raw_section.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ConfigError(f"{config_path}: {section_label}.{key} must be an integer")
+    if value < minimum:
+        raise ConfigError(f"{config_path}: {section_label}.{key} must be >= {minimum}")
+    return value

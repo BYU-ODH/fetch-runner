@@ -27,17 +27,17 @@ ExecStart=/usr/local/bin/fetch-runner /etc/fetch-runner/jobs.toml
 ReadWritePaths=/srv
 
 # ===========================================================================
-# DO NOT MODIFY below this line unless you know exactly why.
-# These settings are the security hardening that makes this service safe
-# to leave running. Removing any of them weakens the sandbox.
+# DO NOT MODIFY below this line casually.
+# These settings are the sandbox that keeps a long-running deploy service from
+# having broad access to the host. If you must relax one, document why.
 # ===========================================================================
 
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=30s
 
-# jounral is the deafult for StandardOutput
-# the deafult for StandardError is "inherit" which inherit's StandardOutput's value
+# Send both fetch-runner logs and deploy-script output to journald so there is
+# one place to inspect failures.
 StandardOutput=journal
 StandardError=journal
 
@@ -47,15 +47,12 @@ RestrictSUIDSGID=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 
-# Filesystem isolation.
-# ProtectSystem=strict prevents the service from writing to the filepaths we want
-# it to edit. We can add a ReadWritePaths setting to allow the service to write to
-# specific paths if we want to keep this at strict. You can also relax the setting
-# a little to "full" to get a lot of protection without having to fill out ReadWritePaths
+# Keep the filesystem read-only by default, then punch narrow write holes back
+# in with `ReadWritePaths=` above for the repos and app state that deployments
+# genuinely need to modify.
 ProtectSystem=strict
 
-# we wont need the service user's home, so we should set ProtectHome to true to
-# enhance security
+# Deploy scripts should not need the service user's home directory.
 ProtectHome=read-only
 
 PrivateTmp=true
@@ -64,23 +61,22 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
 
-# Containers need access to control groups, so we can try setting this to "private"
-# or disable it
+# Prevent deploy code from reconfiguring host control groups. If your rollout
+# tool genuinely needs cgroup access, revisit this deliberately.
 ProtectControlGroups=true
 
 ProtectClock=true
 ProtectHostname=true
 
-# we can change this to "noaccess" for enhanced security since we don't
-# need this service to see what other processes are running
+# Hide unrelated processes from the service; deploy hooks should not be
+# inspecting the rest of the machine.
 ProtectProc=invisible
 
 # Kernel / namespace hardening.
 LockPersonality=true
 RestrictRealtime=true
 
-# This should be a list of namespaces "true" doesn't make sense as a setting here.
-# I recommend we remove this setting
+# Prevent deploy code from creating new namespaces inside the sandbox.
 RestrictNamespaces=true
 
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

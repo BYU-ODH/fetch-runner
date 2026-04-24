@@ -7,18 +7,18 @@ from pathlib import Path
 import pytest
 
 from fetch_runner.guard import GuardError
-from fetch_runner.guard import current_user
-from fetch_runner.guard import render_guard
-from fetch_runner.guard import require_runtime_user
-from fetch_runner.guard import validate_script_guard
+from fetch_runner.guard import get_current_real_uid_user_name
+from fetch_runner.guard import render_canonical_script_guard
+from fetch_runner.guard import require_expected_runtime_user
+from fetch_runner.guard import validate_canonical_script_guard
 
 
 def test_render_guard_embeds_user_everywhere():
-    g = render_guard("deploy")
-    assert "user=deploy" in g
-    assert '"$(whoami)" != "deploy"' in g
-    assert '"$(id -u)" -eq 0' in g
-    assert g.endswith("# <<< fetch-runner-guard:END\n")
+    rendered_guard = render_canonical_script_guard("deploy")
+    assert "user=deploy" in rendered_guard
+    assert '"$(whoami)" != "deploy"' in rendered_guard
+    assert '"$(id -u)" -eq 0' in rendered_guard
+    assert rendered_guard.endswith("# <<< fetch-runner-guard:END\n")
 
 
 @pytest.mark.parametrize(
@@ -27,99 +27,111 @@ def test_render_guard_embeds_user_everywhere():
 )
 def test_render_guard_rejects_unsafe_user(bad):
     with pytest.raises(GuardError):
-        render_guard(bad)
+        render_canonical_script_guard(bad)
 
 
-def _write(path: Path, body: str) -> Path:
-    path.write_text(body)
-    return path
+def _write_script_file(script_path: Path, script_body: str) -> Path:
+    script_path.write_text(script_body)
+    return script_path
 
 
 def test_validate_script_guard_happy(tmp_path: Path):
-    script = _write(
+    script_path = _write_script_file(
         tmp_path / "deploy.sh",
-        "#!/bin/bash\n# a comment\n\n" + render_guard("deploy") + "echo hi\n",
+        "#!/bin/bash\n# a comment\n\n" + render_canonical_script_guard("deploy") + "echo hi\n",
     )
-    assert validate_script_guard(script, "deploy").ok
+    assert validate_canonical_script_guard(script_path, "deploy").is_valid
 
 
 def test_validate_script_guard_works_without_shebang(tmp_path: Path):
-    script = _write(tmp_path / "s", render_guard("deploy") + "echo hi\n")
-    assert validate_script_guard(script, "deploy").ok
+    script_path = _write_script_file(
+        tmp_path / "s",
+        render_canonical_script_guard("deploy") + "echo hi\n",
+    )
+    assert validate_canonical_script_guard(script_path, "deploy").is_valid
 
 
 def test_validate_script_guard_only_comments_has_no_guard(tmp_path: Path):
-    script = _write(tmp_path / "s.sh", "#!/bin/bash\n# nothing here\n\n")
-    result = validate_script_guard(script, "deploy")
-    assert not result.ok
-    assert "canonical guard block" in result.reason
+    script_path = _write_script_file(tmp_path / "s.sh", "#!/bin/bash\n# nothing here\n\n")
+    guard_validation = validate_canonical_script_guard(script_path, "deploy")
+    assert not guard_validation.is_valid
+    assert "canonical guard block" in guard_validation.error_reason
 
 
 def test_validate_script_guard_code_without_guard(tmp_path: Path):
-    script = _write(tmp_path / "s.sh", "#!/bin/bash\necho hi\n")
-    result = validate_script_guard(script, "deploy")
-    assert not result.ok
-    assert "before any executable code" in result.reason
+    script_path = _write_script_file(tmp_path / "s.sh", "#!/bin/bash\necho hi\n")
+    guard_validation = validate_canonical_script_guard(script_path, "deploy")
+    assert not guard_validation.is_valid
+    assert "before any executable code" in guard_validation.error_reason
 
 
 def test_validate_script_guard_wrong_user(tmp_path: Path):
-    script = _write(tmp_path / "s.sh", "#!/bin/bash\n" + render_guard("otheruser") + "echo hi\n")
-    result = validate_script_guard(script, "deploy")
-    assert not result.ok
-    assert "different user" in result.reason
+    script_path = _write_script_file(
+        tmp_path / "s.sh",
+        "#!/bin/bash\n" + render_canonical_script_guard("otheruser") + "echo hi\n",
+    )
+    guard_validation = validate_canonical_script_guard(script_path, "deploy")
+    assert not guard_validation.is_valid
+    assert "different user" in guard_validation.error_reason
 
 
 def test_validate_script_guard_rejects_code_before_guard(tmp_path: Path):
-    script = _write(
+    script_path = _write_script_file(
         tmp_path / "s.sh",
-        "#!/bin/bash\nset -e\n" + render_guard("deploy") + "echo hi\n",
+        "#!/bin/bash\nset -e\n" + render_canonical_script_guard("deploy") + "echo hi\n",
     )
-    result = validate_script_guard(script, "deploy")
-    assert not result.ok
-    assert "before any executable code" in result.reason
+    guard_validation = validate_canonical_script_guard(script_path, "deploy")
+    assert not guard_validation.is_valid
+    assert "before any executable code" in guard_validation.error_reason
 
 
 def test_validate_script_guard_detects_flipped_comparator(tmp_path: Path):
     # The most dangerous form of tampering: a check that always passes.
-    good = render_guard("deploy")
-    tampered = good.replace('!= "deploy"', '== "deploy"')
-    assert tampered != good
-    script = _write(tmp_path / "s.sh", "#!/bin/bash\n" + tampered + "echo hi\n")
-    result = validate_script_guard(script, "deploy")
-    assert not result.ok
+    canonical_guard = render_canonical_script_guard("deploy")
+    tampered_guard = canonical_guard.replace('!= "deploy"', '== "deploy"')
+    assert tampered_guard != canonical_guard
+    script_path = _write_script_file(
+        tmp_path / "s.sh",
+        "#!/bin/bash\n" + tampered_guard + "echo hi\n",
+    )
+    guard_validation = validate_canonical_script_guard(script_path, "deploy")
+    assert not guard_validation.is_valid
 
 
 def test_validate_script_guard_detects_removed_uid_check(tmp_path: Path):
     # Removing the root check: whoami would still match, but a root invocation
     # should be blocked. Tampering must be caught.
-    good = render_guard("deploy")
-    tampered = good.replace(' || [ "$(id -u)" -eq 0 ]', "")
-    assert tampered != good
-    script = _write(tmp_path / "s.sh", "#!/bin/bash\n" + tampered + "echo hi\n")
-    assert not validate_script_guard(script, "deploy").ok
+    canonical_guard = render_canonical_script_guard("deploy")
+    tampered_guard = canonical_guard.replace(' || [ "$(id -u)" -eq 0 ]', "")
+    assert tampered_guard != canonical_guard
+    script_path = _write_script_file(
+        tmp_path / "s.sh",
+        "#!/bin/bash\n" + tampered_guard + "echo hi\n",
+    )
+    assert not validate_canonical_script_guard(script_path, "deploy").is_valid
 
 
 def test_validate_script_guard_truncated(tmp_path: Path):
-    good = render_guard("deploy").splitlines()
-    truncated = "\n".join(good[:-2]) + "\n"
-    script = _write(tmp_path / "s.sh", "#!/bin/bash\n" + truncated)
-    result = validate_script_guard(script, "deploy")
-    assert not result.ok
+    canonical_guard_lines = render_canonical_script_guard("deploy").splitlines()
+    truncated_guard = "\n".join(canonical_guard_lines[:-2]) + "\n"
+    script_path = _write_script_file(tmp_path / "s.sh", "#!/bin/bash\n" + truncated_guard)
+    guard_validation = validate_canonical_script_guard(script_path, "deploy")
+    assert not guard_validation.is_valid
 
 
 def test_validate_script_guard_missing_file(tmp_path: Path):
-    result = validate_script_guard(tmp_path / "nope.sh", "deploy")
-    assert not result.ok
-    assert "cannot read" in result.reason
+    guard_validation = validate_canonical_script_guard(tmp_path / "nope.sh", "deploy")
+    assert not guard_validation.is_valid
+    assert "cannot read" in guard_validation.error_reason
 
 
 def test_current_user_matches_pwd_entry():
-    assert current_user() == pwd.getpwuid(os.getuid()).pw_name
+    assert get_current_real_uid_user_name() == pwd.getpwuid(os.getuid()).pw_name
 
 
 def test_require_runtime_user_rejects_mismatch():
     with pytest.raises(GuardError):
-        require_runtime_user("definitely-not-this-user-xyz")
+        require_expected_runtime_user("definitely-not-this-user-xyz")
 
 
 def test_require_runtime_user_accepts_match():
@@ -127,4 +139,4 @@ def test_require_runtime_user_accepts_match():
     # in a sane test environment). Skip if someone is running tests as root.
     if os.getuid() == 0:
         pytest.skip("test suite is running as root")
-    require_runtime_user(current_user())
+    require_expected_runtime_user(get_current_real_uid_user_name())

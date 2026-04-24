@@ -10,63 +10,76 @@ from fetch_runner import __version__
 from fetch_runner.config import ConfigError
 from fetch_runner.config import load_config
 from fetch_runner.guard import GuardError
-from fetch_runner.guard import render_guard
-from fetch_runner.runner import Runner
+from fetch_runner.guard import render_canonical_script_guard
+from fetch_runner.runner import GitPollingRunner
 
 log = logging.getLogger("fetch_runner")
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(
+    argument_parser = argparse.ArgumentParser(
         prog="fetch-runner",
         description="Poll git branches and run scripts when new commits arrive.",
     )
-    p.add_argument("config", type=Path, nargs="?", help="path to jobs.toml")
-    p.add_argument(
+    argument_parser.add_argument("config", type=Path, nargs="?", help="path to jobs.toml")
+    argument_parser.add_argument(
         "--check",
         action="store_true",
         help="validate the config (including every script's guard) and exit",
     )
-    p.add_argument(
+    argument_parser.add_argument(
         "--print-guard",
         metavar="USER",
         help="print the canonical guard block for USER and exit",
     )
-    p.add_argument("-v", "--verbose", action="store_true", help="enable debug logging")
-    p.add_argument("--version", action="version", version=f"fetch-runner {__version__}")
-    args = p.parse_args(argv)
+    argument_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="enable debug logging",
+    )
+    argument_parser.add_argument(
+        "--version",
+        action="version",
+        version=f"fetch-runner {__version__}",
+    )
+    cli_args = argument_parser.parse_args(argv)
 
-    _configure_logging(args.verbose)
+    _configure_logging(cli_args.verbose)
 
-    if args.print_guard:
+    if cli_args.print_guard:
         try:
-            sys.stdout.write(render_guard(args.print_guard))
+            sys.stdout.write(render_canonical_script_guard(cli_args.print_guard))
         except GuardError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
         return 0
 
-    if args.config is None:
-        p.error("config path is required (or use --print-guard)")
+    if cli_args.config is None:
+        argument_parser.error("config path is required (or use --print-guard)")
 
     try:
-        cfg = load_config(args.config)
+        runner_config = load_config(cli_args.config)
     except ConfigError as e:
         print(f"config error: {e}", file=sys.stderr)
         return 2
 
-    if args.check:
-        print(f"ok: user={cfg.user} jobs={len(cfg.jobs)} poll={cfg.poll_interval_seconds}s")
+    if cli_args.check:
+        print(
+            f"ok: user={runner_config.runtime_user} "
+            f"jobs={len(runner_config.jobs)} "
+            f"poll={runner_config.poll_interval_seconds}s"
+        )
         return 0
 
-    runner = Runner(cfg)
+    runner = GitPollingRunner(runner_config)
 
-    def _stop(signum, _frame):
+    def _handle_stop_signal(signum, _frame):
         log.info("received signal %s; shutting down", signum)
         runner.request_stop()
 
-    signal.signal(signal.SIGTERM, _stop)
-    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _handle_stop_signal)
+    signal.signal(signal.SIGINT, _handle_stop_signal)
     return runner.run_forever()
 
 

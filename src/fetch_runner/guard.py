@@ -1,4 +1,4 @@
-"""User-check enforcement.
+"""Runtime-user and script-guard enforcement.
 
 Two jobs:
 
@@ -22,9 +22,12 @@ import pwd
 from dataclasses import dataclass
 from pathlib import Path
 
-GUARD_BEGIN_PREFIX = "# >>> fetch-runner-guard:BEGIN"
-GUARD_END = "# <<< fetch-runner-guard:END"
+GUARD_BEGIN_MARKER_PREFIX = "# >>> fetch-runner-guard:BEGIN"
+GUARD_END_MARKER = "# <<< fetch-runner-guard:END"
 
+# Keep the guard as a literal byte template. The validator compares a script's
+# bytes against the rendered output exactly, so "helpful" rewrites do not
+# silently weaken the check.
 _GUARD_TEMPLATE = (
     "# >>> fetch-runner-guard:BEGIN user={user}\n"
     'if [ "$(whoami)" != "{user}" ] || [ "$(id -u)" -eq 0 ]; then\n'
@@ -32,7 +35,7 @@ _GUARD_TEMPLATE = (
     ' required: {user}, non-root\\n\' "$(whoami)" "$(id -u)" >&2\n'
     "    exit 1\n"
     "fi\n"
-    "# <<< fetch-runner-guard:END\n"
+    f"{GUARD_END_MARKER}\n"
 )
 
 
@@ -41,94 +44,107 @@ class GuardError(Exception):
 
 
 @dataclass(frozen=True)
-class GuardCheck:
-    ok: bool
-    reason: str = ""
+class ScriptGuardValidation:
+    is_valid: bool
+    error_reason: str = ""
 
 
-def render_guard(user: str) -> str:
+def render_canonical_script_guard(user_name: str) -> str:
     """Return the canonical guard block for ``user`` (trailing newline included)."""
-    _assert_safe_user(user)
-    return _GUARD_TEMPLATE.format(user=user)
+    _require_safe_user_name(user_name)
+    return _GUARD_TEMPLATE.format(user=user_name)
 
 
-def current_user() -> str:
+def get_current_real_uid_user_name() -> str:
     """Return the login name of the real UID.
 
     Uses ``pwd.getpwuid(os.getuid())`` rather than ``$USER`` or ``whoami`` so
     the answer cannot be spoofed via environment variables or utmp.
     """
-    uid = os.getuid()
+    real_uid = os.getuid()
     try:
-        return pwd.getpwuid(uid).pw_name
+        return pwd.getpwuid(real_uid).pw_name
     except KeyError as e:
-        raise GuardError(f"cannot resolve current uid {uid} to a user name") from e
+        raise GuardError(f"cannot resolve current uid {real_uid} to a user name") from e
 
 
-def require_runtime_user(expected: str) -> None:
+def require_expected_runtime_user(expected_user_name: str) -> None:
     """Raise ``GuardError`` unless the process is running as ``expected`` and non-root."""
-    _assert_safe_user(expected)
-    actual = current_user()
-    if actual != expected:
-        raise GuardError(f"runtime user {actual!r} does not match configured user {expected!r}")
+    _require_safe_user_name(expected_user_name)
+    actual_user_name = get_current_real_uid_user_name()
+    if actual_user_name != expected_user_name:
+        raise GuardError(
+            f"runtime user {actual_user_name!r} does not match configured user "
+            f"{expected_user_name!r}"
+        )
     if os.getuid() == 0:
         raise GuardError("refusing to run as root (uid 0)")
 
 
-def validate_script_guard(script: Path, user: str) -> GuardCheck:
+def validate_canonical_script_guard(
+    script_path: Path,
+    expected_user_name: str,
+) -> ScriptGuardValidation:
     """Check that ``script`` begins with the canonical guard for ``user``.
 
     Allowed before the guard: an optional shebang on line 1, blank lines, and
     ``#``-comment lines. Anything else (including ``set -e``) is rejected:
     the guard must be the first code that runs.
     """
-    _assert_safe_user(user)
+    _require_safe_user_name(expected_user_name)
     try:
-        text = script.read_text()
+        script_text = script_path.read_text()
     except OSError as e:
-        return GuardCheck(False, f"cannot read script {script}: {e}")
+        return ScriptGuardValidation(False, f"cannot read script {script_path}: {e}")
 
-    lines = text.splitlines()
-    i = 0
-    if lines and lines[0].startswith("#!"):
-        i = 1
+    script_lines = script_text.splitlines()
+    current_line_index = 0
+    if script_lines and script_lines[0].startswith("#!"):
+        current_line_index = 1
 
-    expected_begin = f"# >>> fetch-runner-guard:BEGIN user={user}"
-    while i < len(lines):
-        stripped = lines[i].strip()
-        if stripped == expected_begin:
+    expected_guard_begin_marker = f"# >>> fetch-runner-guard:BEGIN user={expected_user_name}"
+    while current_line_index < len(script_lines):
+        stripped_line = script_lines[current_line_index].strip()
+        if stripped_line == expected_guard_begin_marker:
             break
-        if stripped.startswith(GUARD_BEGIN_PREFIX):
-            return GuardCheck(
+        if stripped_line.startswith(GUARD_BEGIN_MARKER_PREFIX):
+            return ScriptGuardValidation(
                 False,
-                f"{script}:{i + 1}: guard BEGIN marker targets a different user "
-                f"(expected {user!r}); found {stripped!r}",
+                f"{script_path}:{current_line_index + 1}: guard BEGIN marker targets a different "
+                f"user (expected {expected_user_name!r}); found {stripped_line!r}",
             )
-        if stripped == "" or stripped.startswith("#"):
-            i += 1
+        # Allow only comments before the guard. Even benign shell code like
+        # `set -e` can change behavior before the identity check runs.
+        if stripped_line == "" or stripped_line.startswith("#"):
+            current_line_index += 1
             continue
-        return GuardCheck(
+        return ScriptGuardValidation(
             False,
-            f"{script}:{i + 1}: guard must come before any executable code; found {lines[i]!r}",
+            f"{script_path}:{current_line_index + 1}: guard must come before any executable "
+            f"code; found {script_lines[current_line_index]!r}",
         )
     else:
-        return GuardCheck(False, f"{script}: canonical guard block for user {user!r} not found")
+        return ScriptGuardValidation(
+            False,
+            f"{script_path}: canonical guard block for user {expected_user_name!r} not found",
+        )
 
-    expected = render_guard(user).splitlines()
-    for k, want in enumerate(expected):
-        line_no = i + k + 1
-        if i + k >= len(lines):
-            return GuardCheck(
+    expected_guard_lines = render_canonical_script_guard(expected_user_name).splitlines()
+    for guard_line_offset, expected_line in enumerate(expected_guard_lines):
+        line_number = current_line_index + guard_line_offset + 1
+        if current_line_index + guard_line_offset >= len(script_lines):
+            return ScriptGuardValidation(
                 False,
-                f"{script}:{line_no}: guard block truncated; expected {want!r}",
+                f"{script_path}:{line_number}: guard block truncated; expected {expected_line!r}",
             )
-        got = lines[i + k]
-        if got != want:
-            return GuardCheck(
+        actual_line = script_lines[current_line_index + guard_line_offset]
+        if actual_line != expected_line:
+            return ScriptGuardValidation(
                 False,
-                f"{script}:{line_no}: guard block mismatch; expected {want!r}, got {got!r}",
+                f"{script_path}:{line_number}: guard block mismatch; "
+                f"expected {expected_line!r}, got {actual_line!r}",
             )
-    return GuardCheck(True)
+    return ScriptGuardValidation(True)
 
 
 # Conservative allowlist; keeps us safe if a user name is ever interpolated
@@ -137,13 +153,16 @@ def validate_script_guard(script: Path, user: str) -> GuardCheck:
 _ALLOWED_USER_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
 
 
-def _assert_safe_user(user: str) -> None:
-    if not isinstance(user, str) or not user:
+def _require_safe_user_name(user_name: str) -> None:
+    if not isinstance(user_name, str) or not user_name:
         raise GuardError("user name must be a non-empty string")
-    if len(user) > 32:
-        raise GuardError(f"user name too long: {user!r}")
-    if user.startswith("-"):
-        raise GuardError(f"user name may not start with '-': {user!r}")
-    bad = [c for c in user if c not in _ALLOWED_USER_CHARS]
-    if bad:
-        raise GuardError(f"user name contains disallowed characters {sorted(set(bad))!r}: {user!r}")
+    if len(user_name) > 32:
+        raise GuardError(f"user name too long: {user_name!r}")
+    if user_name.startswith("-"):
+        raise GuardError(f"user name may not start with '-': {user_name!r}")
+    disallowed_characters = [char for char in user_name if char not in _ALLOWED_USER_CHARS]
+    if disallowed_characters:
+        raise GuardError(
+            f"user name contains disallowed characters {sorted(set(disallowed_characters))!r}: "
+            f"{user_name!r}"
+        )
