@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     argument_parser.add_argument(
         "--print-guard",
         metavar="USER",
-        help="print the canonical guard block for USER and exit",
+        help="print the canonical guard block for USER and exit (for pasting into a new script)",
     )
     argument_parser.add_argument(
         "-v",
