@@ -1,0 +1,90 @@
+[Unit]
+Description=fetch-runner: poll git branches and run scripts on new commits
+Documentation=https://github.com/BYU-ODH/fetch-runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ===========================================================================
+# CUSTOMIZE: edit the lines in this block for each deployment.
+# ===========================================================================
+
+# MUST match the `user` field in the jobs.toml this unit starts.
+# fetch-runner exits at startup if they do not match.
+User=deploy
+Group=deploy
+
+# Path to the fetch-runner binary and to the config file it should load.
+# If you installed fetch-runner from a venv, point ExecStart at that venv's
+# bin/fetch-runner. The config path is positional.
+ExecStart=/usr/local/bin/fetch-runner /etc/fetch-runner/jobs.toml
+
+# Every directory your deploy scripts need to write to must appear here
+# (the git repos you poll, plus any app state they touch). Separate with
+# spaces. The rest of the filesystem is read-only thanks to ProtectSystem.
+ReadWritePaths=/srv
+
+# ===========================================================================
+# DO NOT MODIFY below this line casually.
+# These settings are the sandbox that keeps a long-running deploy service from
+# having broad access to the host. If you must relax one, document why.
+# ===========================================================================
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+
+# Send both fetch-runner logs and deploy-script output to journald so there is
+# one place to inspect failures.
+StandardOutput=journal
+StandardError=journal
+
+# Block privilege escalation; the deploy user never needs more than it has.
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Keep the filesystem read-only by default, then punch narrow write holes back
+# in with `ReadWritePaths=` above for the repos and app state that deployments
+# genuinely need to modify.
+ProtectSystem=strict
+
+# Deploy scripts should not need the service user's home directory.
+ProtectHome=read-only
+
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+
+# Prevent deploy code from reconfiguring host control groups. If your rollout
+# tool genuinely needs cgroup access, revisit this deliberately.
+ProtectControlGroups=true
+
+ProtectClock=true
+ProtectHostname=true
+
+# Hide unrelated processes from the service; deploy hooks should not be
+# inspecting the rest of the machine.
+ProtectProc=invisible
+
+# Kernel / namespace hardening.
+LockPersonality=true
+RestrictRealtime=true
+
+# Prevent deploy code from creating new namespaces inside the sandbox.
+RestrictNamespaces=true
+
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Syscall filter.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

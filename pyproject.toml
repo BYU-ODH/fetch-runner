@@ -1,0 +1,45 @@
+[build-system]
+requires = ["uv_build>=0.4.8,<100"]
+build-backend = "uv_build"
+
+[project]
+name = "fetch-runner"
+version = "0.1.0"
+description = "Poll git branches and run scripts when new commits arrive"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "BYU ODH" }]
+dependencies = []
+
+[project.scripts]
+fetch-runner = "fetch_runner.cli:main"
+
+[tool.uv.build-backend]
+module-name = "fetch_runner"
+module-root = "src"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pre-commit>=3",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fetch_runner"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+force-single-line = true
+force-sort-within-sections = false
