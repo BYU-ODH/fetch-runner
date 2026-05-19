@@ -1,7 +1,7 @@
 #!/bin/bash
-# >>> fetch-runner-guard:BEGIN user=deploy
-if [ "$(whoami)" != "deploy" ] || [ "$(id -u)" -eq 0 ]; then
-    printf 'fetch-runner-guard: refusing to run as %s (uid %s); required: deploy, non-root\n' "$(whoami)" "$(id -u)" >&2
+# >>> fetch-runner-guard:BEGIN user=deploy-user
+if [ "$(whoami)" != "deploy-user" ] || [ "$(id -u)" -eq 0 ]; then
+    printf 'fetch-runner-guard: refusing to run as %s (uid %s); required: deploy-user, non-root\n' "$(whoami)" "$(id -u)" >&2
     exit 1
 fi
 # <<< fetch-runner-guard:END
@@ -10,7 +10,7 @@ set -euo pipefail
 
 # This script is designed to run identically whether fetch-runner invoked it
 # on a new commit or a human invoked it from a terminal. The guard above is
-# the only invariant: the caller must be user=deploy and not root.
+# the only invariant: the caller must be user=deploy-user and not root.
 
 cd "$(dirname -- "$0")"
 
