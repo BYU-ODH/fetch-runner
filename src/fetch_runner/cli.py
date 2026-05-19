@@ -6,12 +6,12 @@ import signal
 import sys
 from pathlib import Path
 
-from fetch_runner import __version__
-from fetch_runner.config import ConfigError
-from fetch_runner.config import load_config
-from fetch_runner.guard import GuardError
-from fetch_runner.guard import render_canonical_script_guard
-from fetch_runner.runner import GitPollingRunner
+from . import __version__
+from .config import ConfigError
+from .config import load_config
+from .guard import GuardError
+from .guard import render_canonical_script_guard
+from .runner import GitPollingRunner
 
 log = logging.getLogger("fetch_runner")
 

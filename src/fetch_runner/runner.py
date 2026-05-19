@@ -19,13 +19,13 @@ import os
 import subprocess
 import threading
 
-from fetch_runner.config import ConfiguredJob
-from fetch_runner.config import RunnerConfig
-from fetch_runner.git_ops import GitError
-from fetch_runner.git_ops import git_fetch_branch_from_origin
-from fetch_runner.git_ops import git_force_checkout_branch_to_commit
-from fetch_runner.git_ops import git_get_local_branch_commit_sha
-from fetch_runner.guard import validate_canonical_script_guard
+from .config import ConfiguredJob
+from .config import RunnerConfig
+from .git_ops import GitError
+from .git_ops import git_fetch_branch_from_origin
+from .git_ops import git_force_checkout_branch_to_commit
+from .git_ops import git_get_local_branch_commit_sha
+from .guard import validate_canonical_script_guard
 
 log = logging.getLogger("fetch_runner")
 
