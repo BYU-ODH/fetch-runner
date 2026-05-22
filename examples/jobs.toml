@@ -1,9 +1,17 @@
 # Sample fetch-runner config.
-# fetch-runner will refuse to load this unless the process is running as the
-# user named below (and not as root).
+#
+# fetch-runner uses two distinct users:
+#   * [general].user — the "polling user" the fetch-runner process runs as.
+#     It owns the local git repositories (so `git fetch` / `git checkout`
+#     succeed) but should otherwise have no write access on the host.
+#     fetch-runner refuses to start if the running user does not match.
+#   * [[jobs]].run_as — the user each deploy script runs as. Optional;
+#     defaults to [general].user. When it differs, fetch-runner dispatches
+#     via `sudo -u <run_as>` and a narrow sudoers rule must allow it
+#     (see `fetch-runner --print-sudoers <this-file>`).
 
 [general]
-user = "deploy"
+user = "fetch-runner"
 poll_interval_seconds = 60
 
 [[jobs]]
@@ -11,6 +19,7 @@ name = "my example api"
 path = "/srv/api"
 branch = "main"
 script = "/srv/api/deploy.sh"
+run_as = "app1"
 timeout_seconds = 600
 
 [[jobs]]
@@ -18,3 +27,4 @@ name = "my example web"
 path = "/srv/web"
 branch = "production"
 script = "/srv/web/deploy.sh"
+run_as = "app2"

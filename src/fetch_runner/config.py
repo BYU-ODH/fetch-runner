@@ -9,12 +9,14 @@ deploy, so that config errors surface before a restart.
 from __future__ import annotations
 
 import os
+import pwd
 import stat
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from .guard import GuardError
+from .guard import _require_safe_user_name
 from .guard import require_expected_runtime_user
 from .guard import validate_canonical_script_guard
 
@@ -30,6 +32,11 @@ class ConfiguredJob:
     branch_name: str
     script_path: Path
     script_timeout_seconds: int | None
+    # The user the *script* runs as. May differ from ``RunnerConfig.runtime_user``
+    # (the polling UID) when fetch-runner dispatches to multiple deploy users
+    # via sudo. Defaults to the runtime user when ``run_as`` is omitted, which
+    # preserves the original single-user mode.
+    run_as_user: str
 
 
 @dataclass(frozen=True)
@@ -41,7 +48,7 @@ class RunnerConfig:
 
 _ALLOWED_TOP_LEVEL_KEYS = {"general", "jobs"}
 _ALLOWED_GENERAL_KEYS = {"user", "poll_interval_seconds"}
-_ALLOWED_JOB_KEYS = {"name", "path", "branch", "script", "timeout_seconds"}
+_ALLOWED_JOB_KEYS = {"name", "path", "branch", "script", "timeout_seconds", "run_as"}
 
 _DISALLOWED_BRANCH_CHARACTERS = frozenset(" \t\n\r\x00'\";|&`$<>()[]{}\\*?")
 
@@ -139,7 +146,31 @@ def load_config(config_path: Path) -> RunnerConfig:
         script_path = Path(
             _require_non_empty_string(raw_job_section, "script", section_label, config_path)
         ).resolve()
-        _validate_job_script_file(script_path, runtime_user, section_label, config_path)
+
+        # ``run_as`` defaults to the polling user so existing single-user
+        # configs keep working unchanged. When set, it must (a) parse safely
+        # as a user name (so it is safe to interpolate into the guard template
+        # and sudo argv) and (b) actually resolve via the passwd database, so
+        # operators see a deterministic error here instead of inside the
+        # polling loop when sudo fails.
+        run_as_user = raw_job_section.get("run_as", runtime_user)
+        if not isinstance(run_as_user, str) or not run_as_user:
+            raise ConfigError(f"{config_path}: {section_label}.run_as must be a non-empty string")
+        try:
+            _require_safe_user_name(run_as_user)
+        except GuardError as e:
+            raise ConfigError(f"{config_path}: {section_label}.run_as: {e}") from e
+        try:
+            pwd.getpwnam(run_as_user)
+        except KeyError as e:
+            raise ConfigError(
+                f"{config_path}: {section_label}.run_as user {run_as_user!r} "
+                f"does not exist on this system"
+            ) from e
+
+        # Guard text is matched against the *run-as* user — the user the
+        # script will execute as — not against the polling user.
+        _validate_job_script_file(script_path, run_as_user, section_label, config_path)
 
         script_timeout_seconds = raw_job_section.get("timeout_seconds")
         if script_timeout_seconds is not None:
@@ -159,6 +190,7 @@ def load_config(config_path: Path) -> RunnerConfig:
                 branch_name=branch_name,
                 script_path=script_path,
                 script_timeout_seconds=script_timeout_seconds,
+                run_as_user=run_as_user,
             )
         )
 

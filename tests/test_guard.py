@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from fetch_runner.guard import PRESERVED_ENVIRONMENT_VARIABLE_NAMES
 from fetch_runner.guard import GuardError
 from fetch_runner.guard import get_current_real_uid_user_name
 from fetch_runner.guard import render_canonical_script_guard
+from fetch_runner.guard import render_sudo_argv
 from fetch_runner.guard import require_expected_runtime_user
 from fetch_runner.guard import validate_canonical_script_guard
 
@@ -140,3 +142,27 @@ def test_require_runtime_user_accepts_match():
     if os.getuid() == 0:
         pytest.skip("test suite is running as root")
     require_expected_runtime_user(get_current_real_uid_user_name())
+
+
+def test_render_sudo_argv_shape(tmp_path: Path):
+    script_path = tmp_path / "deploy.sh"
+    argv = render_sudo_argv("app1", script_path)
+    # Order matters: -n must come before sudo can prompt, -u must precede the
+    # target user, --preserve-env must appear before --, and -- must precede
+    # the script path so a path starting with `-` cannot be misread as a flag.
+    assert argv[0] == "sudo"
+    assert argv[1] == "-n"
+    assert argv[2:4] == ["-u", "app1"]
+    preserve_env_flag = argv[4]
+    assert preserve_env_flag.startswith("--preserve-env=")
+    preserved_names = preserve_env_flag[len("--preserve-env=") :].split(",")
+    assert tuple(preserved_names) == PRESERVED_ENVIRONMENT_VARIABLE_NAMES
+    assert argv[5] == "--"
+    assert argv[6] == str(script_path)
+    assert len(argv) == 7
+
+
+@pytest.mark.parametrize("bad", ["", "-evil", "a;b", "user$x"])
+def test_render_sudo_argv_rejects_unsafe_user(bad, tmp_path: Path):
+    with pytest.raises(GuardError):
+        render_sudo_argv(bad, tmp_path / "deploy.sh")

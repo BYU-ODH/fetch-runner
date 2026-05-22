@@ -11,10 +11,13 @@ Type=simple
 # CUSTOMIZE: edit the lines in this block for each deployment.
 # ===========================================================================
 
-# MUST match the `user` field in the jobs.toml this unit starts.
-# fetch-runner exits at startup if they do not match.
-User=deploy
-Group=deploy
+# MUST match the `user` field under [general] in the jobs.toml this unit
+# starts. This is the *polling* user — the one that runs `git fetch` and
+# owns the local repo checkouts. It is NOT necessarily the user your
+# deploy scripts run as; see [[jobs]].run_as in jobs.toml.
+# fetch-runner exits at startup if User= and [general].user disagree.
+User=fetch-runner
+Group=fetch-runner
 
 # Path to the fetch-runner binary and to the config file it should load.
 # If you installed fetch-runner from a venv, point ExecStart at that venv's
@@ -41,9 +44,16 @@ TimeoutStopSec=30s
 StandardOutput=journal
 StandardError=journal
 
-# Block privilege escalation; the deploy user never needs more than it has.
-NoNewPrivileges=true
-RestrictSUIDSGID=true
+# NoNewPrivileges and RestrictSUIDSGID are deliberately NOT set here:
+# fetch-runner uses `sudo -u <run_as>` to dispatch deploy scripts to per-job
+# users, and both settings block sudo's setuid transition. The narrow
+# sudoers fragment (see `fetch-runner --print-sudoers`) is what bounds what
+# fetch-runner can actually do with that privilege — it may only run the
+# exact script paths listed, as the exact run_as users listed, with no
+# password and a fixed env_keep allowlist. If every job in your jobs.toml
+# uses run_as = [general].user (the single-user mode), you can re-enable:
+#   NoNewPrivileges=true
+#   RestrictSUIDSGID=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 

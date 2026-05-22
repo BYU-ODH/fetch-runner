@@ -1,0 +1,43 @@
+# Example sudoers fragment for fetch-runner. Install with:
+#
+#     sudo visudo -f /etc/sudoers.d/fetch-runner
+#
+# The file must be owned by root:root with mode 0440.
+#
+# The simplest way to keep this in sync with jobs.toml is to *generate* it:
+#
+#     fetch-runner --print-sudoers /etc/fetch-runner/jobs.toml \
+#         | sudo tee /etc/sudoers.d/fetch-runner > /dev/null
+#     sudo visudo -cf /etc/sudoers.d/fetch-runner   # syntax check
+#     sudo chmod 0440 /etc/sudoers.d/fetch-runner
+#
+# Below is a hand-written copy of what that command would produce for the
+# example jobs.toml, so you can read the shape of the rules. The exact git
+# binary path comes from `shutil.which("git")` at generation time.
+
+# Preserve FETCH_RUNNER_* env vars only when running these scripts.
+Defaults!/srv/api/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"
+Defaults!/srv/web/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"
+
+# Allow fetch-runner to run git as each run_as user. Repos are owned by
+# the run_as user, so all git operations cross the privilege boundary here.
+fetch-runner ALL=(app1) NOPASSWD: /usr/bin/git
+fetch-runner ALL=(app2) NOPASSWD: /usr/bin/git
+
+# Allow fetch-runner to run each deploy script as its run_as user.
+fetch-runner ALL=(app1) NOPASSWD: /srv/api/deploy.sh
+fetch-runner ALL=(app2) NOPASSWD: /srv/web/deploy.sh
+
+# Notes:
+#   * Script paths are pinned absolutely. Do NOT use wildcards or list
+#     directories — sudoers wildcards on the command field are a classic
+#     escalation vector.
+#   * The run-as user is pinned per line (e.g. `(app1)`). Never `(ALL)`.
+#   * NOPASSWD is required because fetch-runner runs as a service with no
+#     tty; the narrow command + run-as pinning is what keeps this safe.
+#   * env_keep is scoped to the specific script via `Defaults!<path>` so
+#     other sudo invocations from this user do not inherit the allowlist.
+#   * The git rule is intentionally not arg-restricted: it lets the polling
+#     user run git AS the run_as user with any args. That is equivalent to
+#     "polling user can do anything run_as can do on their own files,"
+#     which is already true via the deploy-script rule above.
