@@ -19,11 +19,13 @@ def _make_runner_config(*jobs: ConfiguredJob) -> RunnerConfig:
 
 
 def _make_job(
-    name: str, run_as_user: str, script_path: str = "/srv/app/deploy.sh"
+    name: str,
+    run_as_user: str,
+    script_path: str = "/srv/app1/repo/deploy.sh",
 ) -> ConfiguredJob:
     return ConfiguredJob(
         name=name,
-        repo_path=Path("/srv/app"),
+        repo_path=Path(script_path).parent,
         branch_name="main",
         script_path=Path(script_path),
         script_timeout_seconds=None,
@@ -45,20 +47,20 @@ def test_render_sudoers_fragment_emits_lines_for_cross_user_jobs():
         pytest.skip("git not on PATH; cannot render git sudoers lines")
     git_absolute_path = shutil.which("git")
     runner_config = _make_runner_config(
-        _make_job("api", run_as_user="app1", script_path="/srv/api/deploy.sh"),
-        _make_job("web", run_as_user="app2", script_path="/srv/web/deploy.sh"),
+        _make_job("api", run_as_user="app1", script_path="/srv/app1/api/deploy.sh"),
+        _make_job("web", run_as_user="app2", script_path="/srv/app2/web/deploy.sh"),
     )
     rendered_fragment = render_sudoers_fragment(runner_config)
     assert (
-        'Defaults!/srv/api/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH '
+        'Defaults!/srv/app1/api/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH '
         'FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"'
     ) in rendered_fragment
     # One git rule per unique run_as user; pinned absolutely to the resolved
     # git binary so the rule cannot be sidestepped by a different git on PATH.
     assert f"fetch-runner ALL=(app1) NOPASSWD: {git_absolute_path}" in rendered_fragment
     assert f"fetch-runner ALL=(app2) NOPASSWD: {git_absolute_path}" in rendered_fragment
-    assert "fetch-runner ALL=(app1) NOPASSWD: /srv/api/deploy.sh" in rendered_fragment
-    assert "fetch-runner ALL=(app2) NOPASSWD: /srv/web/deploy.sh" in rendered_fragment
+    assert "fetch-runner ALL=(app1) NOPASSWD: /srv/app1/api/deploy.sh" in rendered_fragment
+    assert "fetch-runner ALL=(app2) NOPASSWD: /srv/app2/web/deploy.sh" in rendered_fragment
 
 
 def test_render_sudoers_fragment_deduplicates_shared_script_and_runas():
@@ -69,21 +71,25 @@ def test_render_sudoers_fragment_deduplicates_shared_script_and_runas():
         pytest.skip("git not on PATH")
     git_absolute_path = shutil.which("git")
     runner_config = _make_runner_config(
-        _make_job("a", run_as_user="app1", script_path="/srv/shared/deploy.sh"),
-        _make_job("b", run_as_user="app1", script_path="/srv/shared/deploy.sh"),
+        _make_job("a", run_as_user="app1", script_path="/srv/app1/shared/deploy.sh"),
+        _make_job("b", run_as_user="app1", script_path="/srv/app1/shared/deploy.sh"),
     )
     rendered_fragment = render_sudoers_fragment(runner_config)
-    assert rendered_fragment.count("Defaults!/srv/shared/deploy.sh") == 1
-    assert rendered_fragment.count("NOPASSWD: /srv/shared/deploy.sh") == 1
+    assert rendered_fragment.count("Defaults!/srv/app1/shared/deploy.sh") == 1
+    assert rendered_fragment.count("NOPASSWD: /srv/app1/shared/deploy.sh") == 1
     # Two jobs share the same run_as, so only one git rule should be emitted.
     assert rendered_fragment.count(f"NOPASSWD: {git_absolute_path}") == 1
 
 
 def test_render_sudoers_fragment_skips_matching_runas_but_keeps_diverging(tmp_path: Path):
     runner_config = _make_runner_config(
-        _make_job("same", run_as_user="fetch-runner", script_path="/srv/x/deploy.sh"),
-        _make_job("diff", run_as_user="app1", script_path="/srv/y/deploy.sh"),
+        _make_job(
+            "same",
+            run_as_user="fetch-runner",
+            script_path="/srv/fetch-runner/x/deploy.sh",
+        ),
+        _make_job("diff", run_as_user="app1", script_path="/srv/app1/y/deploy.sh"),
     )
     rendered_fragment = render_sudoers_fragment(runner_config)
-    assert "/srv/x/deploy.sh" not in rendered_fragment
-    assert "fetch-runner ALL=(app1) NOPASSWD: /srv/y/deploy.sh" in rendered_fragment
+    assert "/srv/fetch-runner/x/deploy.sh" not in rendered_fragment
+    assert "fetch-runner ALL=(app1) NOPASSWD: /srv/app1/y/deploy.sh" in rendered_fragment

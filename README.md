@@ -22,18 +22,26 @@ you (see step 5 below).
 
 ### Filesystem ownership
 
-For each job, with `run_as = "app1"`:
+The convention assumed throughout the docs is that each app's repo
+lives at `/srv/<run_as>/<repo_name>/` — e.g. the `api` repo for
+`run_as = "app1"` is checked out at `/srv/app1/api/` with deploy script
+`/srv/app1/api/deploy.sh`. fetch-runner doesn't enforce this layout, but
+it makes filesystem permissions easy to reason about: every path under
+`/srv/<run_as>/` is owned by that user.
 
-- The repo directory (e.g. `/srv/app1`) and everything under it is owned
+For each job, with `run_as = "app1"` and a repo named `api`:
+
+- The repo directory (`/srv/app1/api`) and everything under it is owned
   `app1:app1`. The polling user does not need write access anywhere in
   the repo.
-- The polling user needs **search** permission (`x` bit) on the repo
-  directory and its parents so it can `chdir` into the repo before
-  exec'ing the deploy script. Standard mode `0755` is enough.
-- The deploy script needs to be **readable** by the polling user (so it
-  can run the post-checkout guard / permissions checks). Mode `0755` is
-  the simplest choice; the guard refuses execution as any other user
-  regardless.
+- The polling user needs **search** permission (`x` bit) on `/srv`,
+  `/srv/app1`, and `/srv/app1/api` so it can `chdir` into the repo
+  before exec'ing the deploy script. Standard mode `0755` on each is
+  enough.
+- The deploy script (`/srv/app1/api/deploy.sh`) needs to be **readable**
+  by the polling user (so it can run the post-checkout guard /
+  permissions checks). Mode `0755` is the simplest choice; the guard
+  refuses execution as any other user regardless.
 
 ## Setup
 
@@ -51,17 +59,19 @@ Note the path of the installed executable (typically something like
 
 ### 2. Add a deploy script to your app
 
-Copy `examples/deploy.sh` from this repository into your app's directory:
+Copy `examples/deploy.sh` from this repository into your app's directory.
+Assuming the conventional layout described above (`/srv/<run_as>/<repo>/`)
+and a job that deploys the `api` repo as `app1`:
 
 ```bash
-cp /path/to/fetch-runner/examples/deploy.sh /srv/myapp/deploy.sh
-chmod +x /srv/myapp/deploy.sh
+sudo -u app1 cp /path/to/fetch-runner/examples/deploy.sh /srv/app1/api/deploy.sh
+sudo -u app1 chmod +x /srv/app1/api/deploy.sh
 ```
 
 Open the script and replace every occurrence of `deploy-user` with the
 **run-as user** for this job — i.e. the account your app's deployment
-should run as (e.g. `app1`). The guard block at the top of the script
-prevents accidental execution as any other user, or as root.
+should run as (`app1` in this example). The guard block at the top of
+the script prevents accidental execution as any other user, or as root.
 
 To regenerate the canonical guard block for a given user:
 

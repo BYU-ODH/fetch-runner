@@ -17,17 +17,19 @@
 user = "fetch-runner"
 poll_interval_seconds = 60
 
+# Apps are conventionally deployed at /srv/<run_as>/<repo_name>/, so the
+# repo for run_as = "app1" deploying the "api" repo lives at /srv/app1/api.
 [[jobs]]
 name = "my example api"
-path = "/srv/api"
+path = "/srv/app1/api"
 branch = "main"
-script = "/srv/api/deploy.sh"
+script = "/srv/app1/api/deploy.sh"
 run_as = "app1"
 timeout_seconds = 600
 
 [[jobs]]
 name = "my example web"
-path = "/srv/web"
+path = "/srv/app2/web"
 branch = "production"
-script = "/srv/web/deploy.sh"
+script = "/srv/app2/web/deploy.sh"
 run_as = "app2"

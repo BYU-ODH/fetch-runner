@@ -16,8 +16,8 @@
 # binary path comes from `shutil.which("git")` at generation time.
 
 # Preserve FETCH_RUNNER_* env vars only when running these scripts.
-Defaults!/srv/api/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"
-Defaults!/srv/web/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"
+Defaults!/srv/app1/api/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"
+Defaults!/srv/app2/web/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"
 
 # Allow fetch-runner to run git as each run_as user. Repos are owned by
 # the run_as user, so all git operations cross the privilege boundary here.
@@ -25,8 +25,8 @@ fetch-runner ALL=(app1) NOPASSWD: /usr/bin/git
 fetch-runner ALL=(app2) NOPASSWD: /usr/bin/git
 
 # Allow fetch-runner to run each deploy script as its run_as user.
-fetch-runner ALL=(app1) NOPASSWD: /srv/api/deploy.sh
-fetch-runner ALL=(app2) NOPASSWD: /srv/web/deploy.sh
+fetch-runner ALL=(app1) NOPASSWD: /srv/app1/api/deploy.sh
+fetch-runner ALL=(app2) NOPASSWD: /srv/app2/web/deploy.sh
 
 # Notes:
 #   * Script paths are pinned absolutely. Do NOT use wildcards or list
