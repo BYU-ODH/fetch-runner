@@ -12,9 +12,11 @@ Type=simple
 # ===========================================================================
 
 # MUST match the `user` field under [general] in the jobs.toml this unit
-# starts. This is the *polling* user — the one that runs `git fetch` and
-# owns the local repo checkouts. It is NOT necessarily the user your
-# deploy scripts run as; see [[jobs]].run_as in jobs.toml.
+# starts. This is the *polling* user — fetch-runner itself runs as this
+# user, but it does NOT own the git repos: each repo is owned by its
+# job's [[jobs]].run_as user, and `git fetch` / `git checkout` are
+# dispatched as that user via sudo. The polling user only needs search
+# permission on the repo paths.
 # fetch-runner exits at startup if User= and [general].user disagree.
 User=fetch-runner
 Group=fetch-runner
@@ -24,9 +26,12 @@ Group=fetch-runner
 # bin/fetch-runner. The config path is positional.
 ExecStart=/usr/local/bin/fetch-runner /etc/fetch-runner/jobs.toml
 
-# Every directory your deploy scripts need to write to must appear here
-# (the git repos you poll, plus any app state they touch). Separate with
-# spaces. The rest of the filesystem is read-only thanks to ProtectSystem.
+# Every directory that any process under this unit needs to write to must
+# appear here — including the git repos (`git fetch` and `git checkout`
+# run as the run_as user via sudo, but they are still children of this
+# unit and subject to its filesystem sandbox) and any app state the
+# deploy scripts touch. Separate with spaces. The rest of the filesystem
+# is read-only thanks to ProtectSystem.
 ReadWritePaths=/srv
 
 # ===========================================================================

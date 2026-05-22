@@ -124,8 +124,11 @@ Edit `/etc/systemd/system/fetch-runner.service` and update the lines in the
   ```
   ExecStart=/home/fetch-runner/.local/bin/fetch-runner /home/fetch-runner/jobs.toml
   ```
-- **`ReadWritePaths`** — list every directory the polling user needs to
-  write to (at minimum, the parent directories of your git repositories).
+- **`ReadWritePaths`** — list every directory that any process under
+  this unit needs to write to. This includes the git repos themselves
+  (even though `git fetch` / `git checkout` run as the `run_as` user via
+  sudo, they are still children of this unit and subject to its
+  filesystem sandbox) plus any app state the deploy scripts touch.
 
 **Security note**: the example unit deliberately omits `NoNewPrivileges=`
 and `RestrictSUIDSGID=` because both block `sudo`'s setuid transition,

@@ -2,13 +2,16 @@
 #
 # fetch-runner uses two distinct users:
 #   * [general].user — the "polling user" the fetch-runner process runs as.
-#     It owns the local git repositories (so `git fetch` / `git checkout`
-#     succeed) but should otherwise have no write access on the host.
-#     fetch-runner refuses to start if the running user does not match.
-#   * [[jobs]].run_as — the user each deploy script runs as. Optional;
-#     defaults to [general].user. When it differs, fetch-runner dispatches
-#     via `sudo -u <run_as>` and a narrow sudoers rule must allow it
-#     (see `fetch-runner --print-sudoers <this-file>`).
+#     It owns nothing in the repos; it just runs the poll loop, validates
+#     scripts, and dispatches work via sudo. fetch-runner refuses to start
+#     if the running user does not match.
+#   * [[jobs]].run_as (optional) — the user that *owns* the local git repository for
+#     this job and the user `git fetch` / `git checkout` and the deploy
+#     script all run as. Defaults to [general].user (which is
+#     then both the polling user and the owner — the original single-user
+#     mode). When it differs, fetch-runner dispatches every git call and
+#     every script invocation via `sudo -u <run_as>` and a narrow sudoers
+#     rule must allow it (see `fetch-runner --print-sudoers <this-file>`).
 
 [general]
 user = "fetch-runner"
