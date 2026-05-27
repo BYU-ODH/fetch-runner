@@ -11,19 +11,20 @@ Type=simple
 # CUSTOMIZE: edit the lines in this block for each deployment.
 # ===========================================================================
 
-# MUST match the `user` field in the jobs.toml this unit starts.
-# fetch-runner exits at startup if they do not match.
-User=deploy
-Group=deploy
+# Must match [general].user in jobs.toml — fetch-runner refuses to start
+# otherwise. This user does not need to own the repos; each repo is
+# owned by its job's run_as user, and git runs as that user via sudo.
+User=fetch-runner
+Group=fetch-runner
 
 # Path to the fetch-runner binary and to the config file it should load.
 # If you installed fetch-runner from a venv, point ExecStart at that venv's
 # bin/fetch-runner. The config path is positional.
 ExecStart=/usr/local/bin/fetch-runner /etc/fetch-runner/jobs.toml
 
-# Every directory your deploy scripts need to write to must appear here
-# (the git repos you poll, plus any app state they touch). Separate with
-# spaces. The rest of the filesystem is read-only thanks to ProtectSystem.
+# Every directory any child process writes to — git repos and any app
+# state the deploy scripts touch. Sudo'd children inherit this sandbox.
+# The rest of the filesystem is read-only thanks to ProtectSystem.
 ReadWritePaths=/srv
 
 # ===========================================================================
@@ -41,9 +42,9 @@ TimeoutStopSec=30s
 StandardOutput=journal
 StandardError=journal
 
-# Block privilege escalation; the deploy user never needs more than it has.
-NoNewPrivileges=true
-RestrictSUIDSGID=true
+# NoNewPrivileges / RestrictSUIDSGID block sudo's setuid transition, so
+# they are off here. The sudoers fragment is what bounds the privilege.
+# If every job uses run_as = [general].user, you can re-enable both.
 CapabilityBoundingSet=
 AmbientCapabilities=
 

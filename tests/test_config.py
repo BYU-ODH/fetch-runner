@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import pwd
 import stat
 from pathlib import Path
 
@@ -10,6 +11,24 @@ from fetch_runner.config import ConfigError
 from fetch_runner.config import load_config
 from fetch_runner.guard import get_current_real_uid_user_name
 from fetch_runner.guard import render_canonical_script_guard
+
+
+def _pick_other_real_user_or_skip() -> str:
+    """Return a real user name that is *not* the current user, for run_as tests.
+
+    ``pwd.getpwnam`` must succeed for ``run_as`` validation, so we can't fake
+    one. ``nobody`` is conventional on macOS and Linux but not strictly
+    required; skip the test if nothing suitable exists.
+    """
+    current_user_name = get_current_real_uid_user_name()
+    for candidate in ("nobody", "daemon"):
+        try:
+            pwd.getpwnam(candidate)
+        except KeyError:
+            continue
+        if candidate != current_user_name:
+            return candidate
+    pytest.skip("no second real user available for run_as test")
 
 
 @pytest.fixture(autouse=True)
@@ -312,6 +331,111 @@ script = "{script_path}"
 """,
     )
     with pytest.raises(ConfigError, match="unsafe characters"):
+        load_config(config_path)
+
+
+def test_load_run_as_defaults_to_general_user(tmp_path: Path):
+    user_name = get_current_real_uid_user_name()
+    config_path = _write_minimal_valid_jobs_toml(tmp_path, user_name=user_name)
+    runner_config = load_config(config_path)
+    assert runner_config.jobs[0].run_as_user == user_name
+
+
+def test_load_accepts_per_job_run_as(tmp_path: Path):
+    runtime_user_name = get_current_real_uid_user_name()
+    run_as_user_name = _pick_other_real_user_or_skip()
+    repo_path = _create_repo_directory(tmp_path / "repo")
+    # The guard text must match the *run-as* user, not the runtime user.
+    script_path = _create_guarded_script(tmp_path / "deploy.sh", run_as_user_name)
+    config_path = _write_jobs_toml(
+        tmp_path / "jobs.toml",
+        f"""
+[general]
+user = "{runtime_user_name}"
+poll_interval_seconds = 30
+
+[[jobs]]
+name = "j1"
+path = "{repo_path}"
+branch = "main"
+script = "{script_path}"
+run_as = "{run_as_user_name}"
+""",
+    )
+    runner_config = load_config(config_path)
+    assert runner_config.runtime_user == runtime_user_name
+    assert runner_config.jobs[0].run_as_user == run_as_user_name
+
+
+def test_load_rejects_run_as_user_not_in_passwd(tmp_path: Path):
+    runtime_user_name = get_current_real_uid_user_name()
+    repo_path = _create_repo_directory(tmp_path / "repo")
+    script_path = _create_guarded_script(tmp_path / "deploy.sh", "ghost-user-xyz-9999")
+    config_path = _write_jobs_toml(
+        tmp_path / "jobs.toml",
+        f"""
+[general]
+user = "{runtime_user_name}"
+poll_interval_seconds = 30
+
+[[jobs]]
+name = "j1"
+path = "{repo_path}"
+branch = "main"
+script = "{script_path}"
+run_as = "ghost-user-xyz-9999"
+""",
+    )
+    with pytest.raises(ConfigError, match="does not exist on this system"):
+        load_config(config_path)
+
+
+def test_load_rejects_unsafe_run_as_value(tmp_path: Path):
+    runtime_user_name = get_current_real_uid_user_name()
+    repo_path = _create_repo_directory(tmp_path / "repo")
+    script_path = _create_guarded_script(tmp_path / "deploy.sh", runtime_user_name)
+    config_path = _write_jobs_toml(
+        tmp_path / "jobs.toml",
+        f"""
+[general]
+user = "{runtime_user_name}"
+poll_interval_seconds = 30
+
+[[jobs]]
+name = "j1"
+path = "{repo_path}"
+branch = "main"
+script = "{script_path}"
+run_as = "evil; rm -rf /"
+""",
+    )
+    with pytest.raises(ConfigError, match="run_as"):
+        load_config(config_path)
+
+
+def test_load_rejects_guard_naming_runtime_user_when_run_as_differs(tmp_path: Path):
+    # The script's guard must match the run-as user. A guard that still names
+    # the runtime user should be refused once run_as diverges.
+    runtime_user_name = get_current_real_uid_user_name()
+    run_as_user_name = _pick_other_real_user_or_skip()
+    repo_path = _create_repo_directory(tmp_path / "repo")
+    script_path = _create_guarded_script(tmp_path / "deploy.sh", runtime_user_name)
+    config_path = _write_jobs_toml(
+        tmp_path / "jobs.toml",
+        f"""
+[general]
+user = "{runtime_user_name}"
+poll_interval_seconds = 30
+
+[[jobs]]
+name = "j1"
+path = "{repo_path}"
+branch = "main"
+script = "{script_path}"
+run_as = "{run_as_user_name}"
+""",
+    )
+    with pytest.raises(ConfigError, match="guard"):
         load_config(config_path)
 
 

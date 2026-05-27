@@ -1,20 +1,28 @@
 # Sample fetch-runner config.
-# fetch-runner will refuse to load this unless the process is running as the
-# user named below (and not as root).
+#
+# [general].user — the user fetch-runner itself runs as. Must match the
+#   running uid or fetch-runner refuses to start.
+# [[jobs]].run_as (optional) — the user that owns this job's repo and
+#   runs its git ops and script. Defaults to [general].user. When set,
+#   sudo is used and a sudoers rule is required
+#   (see `fetch-runner --print-sudoers <this-file>`).
+#
+# Convention: each repo lives at /srv/<run_as>/<repo_name>/.
 
 [general]
-user = "deploy"
+user = "fetch-runner"
 poll_interval_seconds = 60
-
 [[jobs]]
 name = "my example api"
-path = "/srv/api"
+path = "/srv/app1/api"
 branch = "main"
-script = "/srv/api/deploy.sh"
+script = "/srv/app1/api/deploy.sh"
+run_as = "app1"
 timeout_seconds = 600
 
 [[jobs]]
 name = "my example web"
-path = "/srv/web"
+path = "/srv/app2/web"
 branch = "production"
-script = "/srv/web/deploy.sh"
+script = "/srv/app2/web/deploy.sh"
+run_as = "app2"

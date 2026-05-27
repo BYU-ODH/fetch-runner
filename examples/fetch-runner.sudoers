@@ -1,0 +1,27 @@
+# Example sudoers fragment for fetch-runner. Generate the live copy from
+# your jobs.toml — do not edit this by hand on the host:
+#
+#     fetch-runner --print-sudoers /etc/fetch-runner/jobs.toml \
+#         | sudo tee /etc/sudoers.d/fetch-runner > /dev/null
+#     sudo chmod 0440 /etc/sudoers.d/fetch-runner
+#     sudo visudo -cf /etc/sudoers.d/fetch-runner  # syntax check
+#
+# The shape produced for the example jobs.toml is shown below.
+
+# Preserve FETCH_RUNNER_* env vars only when running these scripts.
+Defaults!/srv/app1/api/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"
+Defaults!/srv/app2/web/deploy.sh env_keep += "FETCH_RUNNER_JOB FETCH_RUNNER_BRANCH FETCH_RUNNER_COMMIT FETCH_RUNNER_REPO"
+
+# Run git as each run_as user (repos are owned by that user).
+fetch-runner ALL=(app1) NOPASSWD: /usr/bin/git
+fetch-runner ALL=(app2) NOPASSWD: /usr/bin/git
+
+# Run each deploy script as its run_as user.
+fetch-runner ALL=(app1) NOPASSWD: /srv/app1/api/deploy.sh
+fetch-runner ALL=(app2) NOPASSWD: /srv/app2/web/deploy.sh
+
+# Notes:
+#   * Pin script paths absolutely; pin run_as per line — never (ALL).
+#   * NOPASSWD is required (no tty); the narrow pinning is what keeps it safe.
+#   * The git rule is not arg-restricted — running git as run_as is no
+#     broader than what the deploy-script rule already allows.

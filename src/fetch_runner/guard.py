@@ -25,6 +25,15 @@ from pathlib import Path
 GUARD_BEGIN_MARKER_PREFIX = "# >>> fetch-runner-guard:BEGIN"
 GUARD_END_MARKER = "# <<< fetch-runner-guard:END"
 
+# Env vars fetch-runner sets per script. Sudo's --preserve-env= and sudoers
+# env_keep both render from this tuple to prevent drift.
+PRESERVED_ENVIRONMENT_VARIABLE_NAMES: tuple[str, ...] = (
+    "FETCH_RUNNER_JOB",
+    "FETCH_RUNNER_BRANCH",
+    "FETCH_RUNNER_COMMIT",
+    "FETCH_RUNNER_REPO",
+)
+
 # Keep the guard as a literal byte template. The validator compares a script's
 # bytes against the rendered output exactly, so "helpful" rewrites do not
 # silently weaken the check.
@@ -53,6 +62,26 @@ def render_canonical_script_guard(user_name: str) -> str:
     """Return the canonical guard block for ``user`` (trailing newline included)."""
     _require_safe_user_name(user_name)
     return _GUARD_TEMPLATE.format(user=user_name)
+
+
+def render_sudo_argv(run_as_user_name: str, script_path: Path) -> list[str]:
+    """Build the argv used to execute ``script_path`` as ``run_as_user_name``.
+
+    ``-n`` makes sudo fail immediately if a password is required (no tty).
+    ``--`` terminates option parsing so a script path starting with ``-``
+    cannot be misread as a sudo flag.
+    """
+    _require_safe_user_name(run_as_user_name)
+    preserve_env_flag = "--preserve-env=" + ",".join(PRESERVED_ENVIRONMENT_VARIABLE_NAMES)
+    return [
+        "sudo",
+        "-n",
+        "-u",
+        run_as_user_name,
+        preserve_env_flag,
+        "--",
+        str(script_path),
+    ]
 
 
 def get_current_real_uid_user_name() -> str:
