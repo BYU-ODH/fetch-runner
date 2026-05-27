@@ -31,10 +31,17 @@ uv tool install git+https://github.com/BYU-ODH/fetch-runner
 ```
 
 Note the installed executable path (typically
-`/home/fetch-runner/.local/bin/fetch-runner`).
+`/home/[general].user/.local/bin/fetch-runner`).
 
 ### 2. Add a deploy script to each app
+As a user with sudo capability:
 
+Clone the fetch-runner repository
+``` bash
+git clone https://github.com/BYU-ODH/fetch-runner.git
+```
+
+Now, as the run_as user, copy the deploy.sh script into the application directory.
 For a job with `run_as = "app1"` deploying the `api` repo:
 
 ```bash
