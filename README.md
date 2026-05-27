@@ -62,7 +62,7 @@ Commit the script to the app's repo so deploys are version-controlled.
 ### 3. Create the jobs config
 
 ```bash
-cp /path/to/fetch-runner/examples/jobs.toml /home/fetch-runner/jobs.toml
+cp /path/to/fetch-runner/examples/jobs.toml /home/[general].user/jobs.toml
 ```
 
 Per `[[jobs]]`:
@@ -86,19 +86,21 @@ sudo cp /path/to/fetch-runner/examples/fetch-runner.service \
     /etc/systemd/system/fetch-runner.service
 ```
 
-In the `CUSTOMIZE` block, set:
+In the `CUSTOMIZE` block of the new fetch-runner system unit service, set:
 - `User` / `Group` to `[general].user`
-- `ExecStart` to the binary path from step 1 plus your config path
-- `ReadWritePaths` to every directory any child process writes to —
-  including the repos themselves (sudo'd git is still inside the unit's
-  filesystem sandbox)
+- `ExecStart` to the binary path from step 1 and the path to your jobs.toml config file
+- `ReadWritePaths` to every directory any child process (such as git) writes to —
+  including the root directory of each repo (sudo'd git is still inside the
+  fetch-runner unit service's filesystem sandbox). If all of your repos are inside
+  a single directory, (/srv, for example) you can set `ReadWritePaths` to only this
+  directory and all child directorys will be readable/writeable as well.
 
 The example unit omits `NoNewPrivileges=` and `RestrictSUIDSGID=`
 because they block sudo's setuid. The sudoers fragment (step 5) is what
 bounds the privilege. If every job uses `run_as = [general].user`, you
 can re-enable both.
 
-### 5. Install the sudoers fragment (only if any job sets a different `run_as`)
+### 5. Install the sudoers fragment (only if any job sets a `run_as` user that is different from [general].user)
 
 ```bash
 fetch-runner --print-sudoers /home/fetch-runner/jobs.toml \
