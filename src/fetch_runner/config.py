@@ -32,10 +32,8 @@ class ConfiguredJob:
     branch_name: str
     script_path: Path
     script_timeout_seconds: int | None
-    # The user the *script* runs as. May differ from ``RunnerConfig.runtime_user``
-    # (the polling UID) when fetch-runner dispatches to multiple deploy users
-    # via sudo. Defaults to the runtime user when ``run_as`` is omitted, which
-    # preserves the original single-user mode.
+    # The user this job's git ops and script run as. Defaults to
+    # ``RunnerConfig.runtime_user`` when ``run_as`` is omitted in TOML.
     run_as_user: str
 
 
@@ -147,12 +145,8 @@ def load_config(config_path: Path) -> RunnerConfig:
             _require_non_empty_string(raw_job_section, "script", section_label, config_path)
         ).resolve()
 
-        # ``run_as`` defaults to the polling user so existing single-user
-        # configs keep working unchanged. When set, it must (a) parse safely
-        # as a user name (so it is safe to interpolate into the guard template
-        # and sudo argv) and (b) actually resolve via the passwd database, so
-        # operators see a deterministic error here instead of inside the
-        # polling loop when sudo fails.
+        # Resolve via passwd at load time so a typo fails fast instead of
+        # surfacing as a confusing sudo error during the first poll.
         run_as_user = raw_job_section.get("run_as", runtime_user)
         if not isinstance(run_as_user, str) or not run_as_user:
             raise ConfigError(f"{config_path}: {section_label}.run_as must be a non-empty string")
@@ -168,8 +162,6 @@ def load_config(config_path: Path) -> RunnerConfig:
                 f"does not exist on this system"
             ) from e
 
-        # Guard text is matched against the *run-as* user — the user the
-        # script will execute as — not against the polling user.
         _validate_job_script_file(script_path, run_as_user, section_label, config_path)
 
         script_timeout_seconds = raw_job_section.get("timeout_seconds")

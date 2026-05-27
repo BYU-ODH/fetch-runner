@@ -159,10 +159,8 @@ class GitPollingRunner:
             "FETCH_RUNNER_COMMIT": commit_sha,
             "FETCH_RUNNER_REPO": str(configured_job.repo_path),
         }
-        # When the script runs as the polling user, invoke it directly: no sudo
-        # rule is required and existing single-user setups keep working with no
-        # operator changes. Otherwise dispatch through sudo, which crosses the
-        # privilege boundary into the per-job ``run_as`` user.
+        # Skip sudo when run_as matches the service user — single-user setups
+        # then need no sudoers rule at all.
         if configured_job.run_as_user == self.runner_config.runtime_user:
             script_argv = [str(configured_job.script_path)]
         else:
@@ -205,13 +203,8 @@ def _short_commit_sha(commit_sha: str) -> str:
 
 
 def _post_checkout_script_problem(script_path, run_as_user_name: str) -> str | None:
-    """Return a human-readable reason the freshly checked-out script is unsafe,
-    or ``None`` if it passes every check.
-
-    Re-runs the file-state checks from config load (exists, executable,
-    not world-writable) plus the guard check. A malicious or accidental commit
-    can change any of these between deploys; config-time validation alone
-    cannot catch a tampered post-checkout state.
+    """Re-run the file-state and guard checks against the freshly checked-out
+    script. A new commit can change any of these between deploys.
     """
     if not script_path.is_file():
         return f"{script_path} does not exist"

@@ -25,9 +25,8 @@ from pathlib import Path
 GUARD_BEGIN_MARKER_PREFIX = "# >>> fetch-runner-guard:BEGIN"
 GUARD_END_MARKER = "# <<< fetch-runner-guard:END"
 
-# Environment variables fetch-runner sets for every job script. Listed here so
-# both the sudo invocation (--preserve-env=) and the sudoers env_keep policy
-# render from the same source — a drift would silently drop variables.
+# Env vars fetch-runner sets per script. Sudo's --preserve-env= and sudoers
+# env_keep both render from this tuple to prevent drift.
 PRESERVED_ENVIRONMENT_VARIABLE_NAMES: tuple[str, ...] = (
     "FETCH_RUNNER_JOB",
     "FETCH_RUNNER_BRANCH",
@@ -68,10 +67,9 @@ def render_canonical_script_guard(user_name: str) -> str:
 def render_sudo_argv(run_as_user_name: str, script_path: Path) -> list[str]:
     """Build the argv used to execute ``script_path`` as ``run_as_user_name``.
 
-    ``-n`` makes sudo fail immediately if a password is required; fetch-runner
-    has no tty and must surface a missing sudoers rule as an error rather than
-    hang. ``--`` terminates option parsing so a future absolute path that
-    happens to start with ``-`` cannot be misread as a sudo flag.
+    ``-n`` makes sudo fail immediately if a password is required (no tty).
+    ``--`` terminates option parsing so a script path starting with ``-``
+    cannot be misread as a sudo flag.
     """
     _require_safe_user_name(run_as_user_name)
     preserve_env_flag = "--preserve-env=" + ",".join(PRESERVED_ENVIRONMENT_VARIABLE_NAMES)

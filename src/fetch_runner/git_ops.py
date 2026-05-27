@@ -1,15 +1,11 @@
 """Minimal ``git`` wrappers.
 
-The runner intentionally uses a very small, audited subset of ``git``.
 Subprocess calls use an argv list (never ``shell=True``); repo paths are
 passed with ``-C`` and branch names have already been validated against a
 conservative allowlist at config load.
 
-Every operation is performed *as the job's* ``run_as`` user, never as the
-polling user. fetch-runner does not need to own the repos: the repos are
-owned by their respective ``run_as`` users, and git invocations are
-sudo-wrapped (``sudo -n -u <run_as>``) when ``run_as`` differs from the
-process's own user.
+Each operation runs as the job's ``run_as`` user — directly when that is
+the current process user, otherwise wrapped in ``sudo -n -u <run_as>``.
 """
 
 from __future__ import annotations
@@ -28,12 +24,8 @@ class GitError(Exception):
 
 
 def _git_absolute_path() -> str:
-    """Return the absolute path of ``git``.
-
-    Sudo requires absolute paths in Commands rules, so the same value is
-    used both when invoking sudo and when emitting the sudoers fragment
-    (via :func:`render_sudoers_fragment_git_lines`). Resolved lazily so
-    importing this module never fails on systems where git is missing.
+    """Resolve git lazily. Sudoers Commands rules need the absolute path, so
+    this is shared between the sudo argv and ``render_sudoers_fragment``.
     """
     git_path = shutil.which("git")
     if git_path is None:
@@ -42,12 +34,6 @@ def _git_absolute_path() -> str:
 
 
 def _build_git_argv(repo_path: Path, run_as_user_name: str, git_args: tuple[str, ...]) -> list[str]:
-    """Construct the argv used to invoke git.
-
-    When ``run_as_user_name`` matches the polling process's own user we run
-    git directly. Otherwise we wrap with ``sudo -n -u <run_as> -- /abs/git``
-    so the polling user never needs filesystem access to the repo.
-    """
     _require_safe_user_name(run_as_user_name)
     git_path = _git_absolute_path()
     direct_git_argv = [git_path, "-C", str(repo_path), *git_args]

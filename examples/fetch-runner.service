@@ -11,13 +11,9 @@ Type=simple
 # CUSTOMIZE: edit the lines in this block for each deployment.
 # ===========================================================================
 
-# MUST match the `user` field under [general] in the jobs.toml this unit
-# starts. This is the *polling* user — fetch-runner itself runs as this
-# user, but it does NOT own the git repos: each repo is owned by its
-# job's [[jobs]].run_as user, and `git fetch` / `git checkout` are
-# dispatched as that user via sudo. The polling user only needs search
-# permission on the repo paths.
-# fetch-runner exits at startup if User= and [general].user disagree.
+# Must match [general].user in jobs.toml — fetch-runner refuses to start
+# otherwise. This user does not need to own the repos; each repo is
+# owned by its job's run_as user, and git runs as that user via sudo.
 User=fetch-runner
 Group=fetch-runner
 
@@ -26,12 +22,9 @@ Group=fetch-runner
 # bin/fetch-runner. The config path is positional.
 ExecStart=/usr/local/bin/fetch-runner /etc/fetch-runner/jobs.toml
 
-# Every directory that any process under this unit needs to write to must
-# appear here — including the git repos (`git fetch` and `git checkout`
-# run as the run_as user via sudo, but they are still children of this
-# unit and subject to its filesystem sandbox) and any app state the
-# deploy scripts touch. Separate with spaces. The rest of the filesystem
-# is read-only thanks to ProtectSystem.
+# Every directory any child process writes to — git repos and any app
+# state the deploy scripts touch. Sudo'd children inherit this sandbox.
+# The rest of the filesystem is read-only thanks to ProtectSystem.
 ReadWritePaths=/srv
 
 # ===========================================================================
@@ -49,16 +42,9 @@ TimeoutStopSec=30s
 StandardOutput=journal
 StandardError=journal
 
-# NoNewPrivileges and RestrictSUIDSGID are deliberately NOT set here:
-# fetch-runner uses `sudo -u <run_as>` to dispatch deploy scripts to per-job
-# users, and both settings block sudo's setuid transition. The narrow
-# sudoers fragment (see `fetch-runner --print-sudoers`) is what bounds what
-# fetch-runner can actually do with that privilege — it may only run the
-# exact script paths listed, as the exact run_as users listed, with no
-# password and a fixed env_keep allowlist. If every job in your jobs.toml
-# uses run_as = [general].user (the single-user mode), you can re-enable:
-#   NoNewPrivileges=true
-#   RestrictSUIDSGID=true
+# NoNewPrivileges / RestrictSUIDSGID block sudo's setuid transition, so
+# they are off here. The sudoers fragment is what bounds the privilege.
+# If every job uses run_as = [general].user, you can re-enable both.
 CapabilityBoundingSet=
 AmbientCapabilities=
 

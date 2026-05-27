@@ -39,10 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     argument_parser.add_argument(
         "--print-sudoers",
         action="store_true",
-        help=(
-            "load the config and print a sudoers fragment for every job whose "
-            "run_as user differs from the polling user; exit without running"
-        ),
+        help="print the sudoers fragment required by the config and exit",
     )
     argument_parser.add_argument(
         "-v",
@@ -100,22 +97,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def render_sudoers_fragment(runner_config: RunnerConfig) -> str:
-    """Return a sudoers fragment authorizing every cross-user job in the config.
-
-    Emits three sections for jobs whose ``run_as`` differs from the polling
-    user:
-
-    1. ``Defaults!<script>`` env_keep lines so sudo will preserve the
-       ``FETCH_RUNNER_*`` variables when running each deploy script.
-    2. ``<polling_user> ALL=(<run_as>) NOPASSWD: <git>`` per unique run_as,
-       authorizing the git operations fetch-runner performs against repos
-       owned by each run_as user.
-    3. ``<polling_user> ALL=(<run_as>) NOPASSWD: <script>`` per unique
-       ``(run_as, script)`` pair, authorizing the deploy script itself.
-
-    Jobs whose ``run_as`` already equals the polling user are skipped —
-    those run directly, without sudo. Output is deterministic (sorted) so
-    re-generating after a config change produces a reviewable diff.
+    """Return a sudoers fragment authorizing every job whose ``run_as``
+    differs from ``[general].user``. Output is sorted/deduplicated so
+    regenerating after a config change produces a reviewable diff.
     """
     cross_user_jobs = [
         configured_job
@@ -129,8 +113,8 @@ def render_sudoers_fragment(runner_config: RunnerConfig) -> str:
     )
     if not cross_user_jobs:
         rendered_lines.append(
-            "# (no jobs in this config use a run_as user different from "
-            f"the polling user {runner_config.runtime_user!r}; no sudoers rules needed.)\n"
+            f"# (no jobs use a run_as different from {runner_config.runtime_user!r}; "
+            "no sudoers rules needed.)\n"
         )
         return "".join(rendered_lines)
 
@@ -146,20 +130,17 @@ def render_sudoers_fragment(runner_config: RunnerConfig) -> str:
     )
     env_keep_value = " ".join(PRESERVED_ENVIRONMENT_VARIABLE_NAMES)
 
-    rendered_lines.append("\n# Preserve FETCH_RUNNER_* env vars only when running these scripts.\n")
+    rendered_lines.append("\n# Preserve FETCH_RUNNER_* env vars when running deploy scripts.\n")
     for script_path in unique_script_paths:
         rendered_lines.append(f'Defaults!{script_path} env_keep += "{env_keep_value}"\n')
 
-    rendered_lines.append(
-        "\n# Allow fetch-runner to run git as each run_as user. Repos are owned by\n"
-        "# the run_as user, so all git operations cross the privilege boundary here.\n"
-    )
+    rendered_lines.append("\n# Run git as each run_as user (repos are owned by that user).\n")
     for run_as_user_name in unique_runas_users:
         rendered_lines.append(
             f"{runner_config.runtime_user} ALL=({run_as_user_name}) NOPASSWD: {git_path}\n"
         )
 
-    rendered_lines.append("\n# Allow fetch-runner to run each deploy script as its run_as user.\n")
+    rendered_lines.append("\n# Run each deploy script as its run_as user.\n")
     for run_as_user_name, script_path in unique_runas_and_script_pairs:
         rendered_lines.append(
             f"{runner_config.runtime_user} ALL=({run_as_user_name}) NOPASSWD: {script_path}\n"

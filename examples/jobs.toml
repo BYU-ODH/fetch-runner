@@ -1,24 +1,17 @@
 # Sample fetch-runner config.
 #
-# fetch-runner uses two distinct users:
-#   * [general].user — the "polling user" the fetch-runner process runs as.
-#     It owns nothing in the repos; it just runs the poll loop, validates
-#     scripts, and dispatches work via sudo. fetch-runner refuses to start
-#     if the running user does not match.
-#   * [[jobs]].run_as (optional) — the user that *owns* the local git repository for
-#     this job and the user `git fetch` / `git checkout` and the deploy
-#     script all run as. Defaults to [general].user (which is
-#     then both the polling user and the owner — the original single-user
-#     mode). When it differs, fetch-runner dispatches every git call and
-#     every script invocation via `sudo -u <run_as>` and a narrow sudoers
-#     rule must allow it (see `fetch-runner --print-sudoers <this-file>`).
+# [general].user — the user fetch-runner itself runs as. Must match the
+#   running uid or fetch-runner refuses to start.
+# [[jobs]].run_as (optional) — the user that owns this job's repo and
+#   runs its git ops and script. Defaults to [general].user. When set,
+#   sudo is used and a sudoers rule is required
+#   (see `fetch-runner --print-sudoers <this-file>`).
+#
+# Convention: each repo lives at /srv/<run_as>/<repo_name>/.
 
 [general]
 user = "fetch-runner"
 poll_interval_seconds = 60
-
-# Apps are conventionally deployed at /srv/<run_as>/<repo_name>/, so the
-# repo for run_as = "app1" deploying the "api" repo lives at /srv/app1/api.
 [[jobs]]
 name = "my example api"
 path = "/srv/app1/api"
