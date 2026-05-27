@@ -93,7 +93,7 @@ In the `CUSTOMIZE` block of the new fetch-runner system unit service, set:
   including the root directory of each repo (sudo'd git is still inside the
   fetch-runner unit service's filesystem sandbox). If all of your repos are inside
   a single directory, (/srv, for example) you can set `ReadWritePaths` to only this
-  directory and all child directorys will be readable/writeable as well.
+  directory and all child directories will be readable/writeable as well.
 
 The example unit omits `NoNewPrivileges=` and `RestrictSUIDSGID=`
 because they block sudo's setuid. The sudoers fragment (step 5) is what
