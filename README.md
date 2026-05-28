@@ -109,6 +109,8 @@ sudo chmod 0440 /etc/sudoers.d/fetch-runner
 sudo visudo -cf /etc/sudoers.d/fetch-runner  # syntax check
 ```
 
+Note: You may need to run these steps separately in order to create the /etc/sudoers.d/fetch-runner file. This can be done by copying the output of the `fetch-runner --print-sudoers` command and pasting the result into the `/etc/sudoers.d/fetch-runner` file. The other commands can be followed as written.
+
 Re-run after any `jobs.toml` change. The git rule is intentionally not
 arg-restricted: running git as `run_as` is no broader than what the
 deploy-script rule already grants.
@@ -129,9 +131,9 @@ guard for the new user, regenerate the sudoers fragment, reload.
 ## Debugging
 
 ```bash
-systemctl status fetch-runner
-journalctl -u fetch-runner -f
-journalctl -u fetch-runner -b
+sudo systemctl status fetch-runner
+sudo journalctl -u fetch-runner -f
+sudo journalctl -u fetch-runner -b
 ```
 
 - `sudo: a password is required` → sudoers fragment is missing or stale;
