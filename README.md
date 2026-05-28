@@ -5,14 +5,15 @@ Run scripts when `git fetch` finds new commits to specified git branches.
 
 Two users matter:
 
-- **`[general].user`** — the user fetch-runner itself runs as (also
-  `User=` in the systemd unit). fetch-runner refuses to start if the
-  running uid doesn't match.
-- **`[[jobs]].run_as`** — per-job; owns this job's repo and runs its git
-  ops and deploy script. Defaults to `[general].user`. When set
-  differently, fetch-runner dispatches everything via `sudo -n -u <run_as>`
-  and a sudoers rule must allow it (generate one with
-  `fetch-runner --print-sudoers <jobs.toml>`).
+- **`[general].user`** — the user defined in the general section of the jobs.toml file.
+  This is the user that the fetch-runner process runs under (also
+  `User=` in the systemd unit). The fetch-runner script refuses to start if the
+  running uid doesn't match this user.
+- **`[[jobs]].run_as`** — defined for each job described in jobs.toml. This user owns the job's repo
+  and runs its git ops and deploy script. If this value is not defined, it will default to `[general].user`.
+  When run_as is defined, fetch-runner dispatches everything via `sudo -n -u <run_as>`
+  and a sudoers rule must allow it. A sudoers rule can be generated for each run_as user by running
+  `fetch-runner --print-sudoers <jobs.toml>`.
 
 Convention assumed throughout the docs is that each repo lives at
 `/srv/<run_as>/<repo_name>/`, owned `<run_as>:<run_as>` mode `0755`.
@@ -30,10 +31,17 @@ uv tool install git+https://github.com/BYU-ODH/fetch-runner
 ```
 
 Note the installed executable path (typically
-`/home/fetch-runner/.local/bin/fetch-runner`).
+`/home/[general].user/.local/bin/fetch-runner`).
 
 ### 2. Add a deploy script to each app
+As a user with sudo capability:
 
+Clone the fetch-runner repository
+``` bash
+git clone https://github.com/BYU-ODH/fetch-runner.git
+```
+
+Now, as the run_as user, copy the deploy.sh script into the application directory.
 For a job with `run_as = "app1"` deploying the `api` repo:
 
 ```bash
@@ -54,7 +62,7 @@ Commit the script to the app's repo so deploys are version-controlled.
 ### 3. Create the jobs config
 
 ```bash
-cp /path/to/fetch-runner/examples/jobs.toml /home/fetch-runner/jobs.toml
+cp /path/to/fetch-runner/examples/jobs.toml /home/[general].user/jobs.toml
 ```
 
 Per `[[jobs]]`:
@@ -78,19 +86,21 @@ sudo cp /path/to/fetch-runner/examples/fetch-runner.service \
     /etc/systemd/system/fetch-runner.service
 ```
 
-In the `CUSTOMIZE` block, set:
+In the `CUSTOMIZE` block of the new fetch-runner system unit service, set:
 - `User` / `Group` to `[general].user`
-- `ExecStart` to the binary path from step 1 plus your config path
-- `ReadWritePaths` to every directory any child process writes to —
-  including the repos themselves (sudo'd git is still inside the unit's
-  filesystem sandbox)
+- `ExecStart` to the binary path from step 1 and the path to your jobs.toml config file
+- `ReadWritePaths` to every directory any child process (such as git) writes to —
+  including the root directory of each repo (sudo'd git is still inside the
+  fetch-runner unit service's filesystem sandbox). If all of your repos are inside
+  a single directory, (/srv, for example) you can set `ReadWritePaths` to only this
+  directory and all child directories will be readable/writeable as well.
 
 The example unit omits `NoNewPrivileges=` and `RestrictSUIDSGID=`
 because they block sudo's setuid. The sudoers fragment (step 5) is what
 bounds the privilege. If every job uses `run_as = [general].user`, you
 can re-enable both.
 
-### 5. Install the sudoers fragment (only if any job sets a different `run_as`)
+### 5. Install the sudoers fragment (only if any job sets a `run_as` user that is different from [general].user)
 
 ```bash
 fetch-runner --print-sudoers /home/fetch-runner/jobs.toml \
@@ -98,6 +108,8 @@ fetch-runner --print-sudoers /home/fetch-runner/jobs.toml \
 sudo chmod 0440 /etc/sudoers.d/fetch-runner
 sudo visudo -cf /etc/sudoers.d/fetch-runner  # syntax check
 ```
+
+Note: You may need to run these steps separately in order to create the /etc/sudoers.d/fetch-runner file. This can be done by copying the output of the `fetch-runner --print-sudoers` command and pasting the result into the `/etc/sudoers.d/fetch-runner` file. The other commands can be followed as written.
 
 Re-run after any `jobs.toml` change. The git rule is intentionally not
 arg-restricted: running git as `run_as` is no broader than what the
@@ -119,9 +131,9 @@ guard for the new user, regenerate the sudoers fragment, reload.
 ## Debugging
 
 ```bash
-systemctl status fetch-runner
-journalctl -u fetch-runner -f
-journalctl -u fetch-runner -b
+sudo systemctl status fetch-runner
+sudo journalctl -u fetch-runner -f
+sudo journalctl -u fetch-runner -b
 ```
 
 - `sudo: a password is required` → sudoers fragment is missing or stale;
