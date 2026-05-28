@@ -78,9 +78,12 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 
-# Hide unrelated processes from the service; deploy hooks should not be
-# inspecting the rest of the machine.
-ProtectProc=invisible
+# Left at `default` (no hiding) because `invisible` makes /proc/1 unreadable
+# to the sandbox, and PAM (via sudo) then logs a stream of "Could not read
+# /proc/1/limits" warnings on every fetch. Tighten to `invisible` if you can
+# live with the noise — deploy hooks have no legitimate need to inspect
+# other processes.
+ProtectProc=default
 
 # Kernel / namespace hardening.
 LockPersonality=true

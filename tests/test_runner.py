@@ -47,7 +47,7 @@ def test_runner_invokes_script_directly_when_run_as_matches_runtime_user(tmp_pat
     runner, job = _make_runner(run_as_user=current_user_name, script_path=script_path)
     with mock.patch("fetch_runner.runner.subprocess.run") as mocked_subprocess_run:
         mocked_subprocess_run.return_value = mock.Mock(returncode=0)
-        runner._run_job_script_for_commit(job, "deadbeef" * 5)
+        runner._run_job_script_for_commit(job, "main", "deadbeef" * 5)
     invocation_argv = mocked_subprocess_run.call_args.args[0]
     assert invocation_argv == [str(script_path)]
 
@@ -59,7 +59,7 @@ def test_runner_invokes_script_via_sudo_when_run_as_differs(tmp_path: Path):
     runner, job = _make_runner(run_as_user="someone-else", script_path=script_path)
     with mock.patch("fetch_runner.runner.subprocess.run") as mocked_subprocess_run:
         mocked_subprocess_run.return_value = mock.Mock(returncode=0)
-        runner._run_job_script_for_commit(job, "cafef00d" * 5)
+        runner._run_job_script_for_commit(job, "main", "cafef00d" * 5)
     invocation_argv = mocked_subprocess_run.call_args.args[0]
     assert invocation_argv[0] == "sudo"
     assert invocation_argv[1] == "-n"
@@ -75,7 +75,7 @@ def test_runner_passes_fetch_runner_env_vars_through_subprocess(tmp_path: Path):
     runner, job = _make_runner(run_as_user="someone-else", script_path=script_path)
     with mock.patch("fetch_runner.runner.subprocess.run") as mocked_subprocess_run:
         mocked_subprocess_run.return_value = mock.Mock(returncode=0)
-        runner._run_job_script_for_commit(job, "1234567890ab")
+        runner._run_job_script_for_commit(job, "main", "1234567890ab")
     passed_env = mocked_subprocess_run.call_args.kwargs["env"]
     assert passed_env["FETCH_RUNNER_JOB"] == "j"
     assert passed_env["FETCH_RUNNER_BRANCH"] == "main"

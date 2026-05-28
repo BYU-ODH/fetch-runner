@@ -25,6 +25,7 @@ from .config import RunnerConfig
 from .git_ops import GitError
 from .git_ops import git_fetch_branch_from_origin
 from .git_ops import git_force_checkout_branch_to_commit
+from .git_ops import git_get_current_branch
 from .git_ops import git_get_local_branch_commit_sha
 from .guard import render_sudo_argv
 from .guard import validate_canonical_script_guard
@@ -63,34 +64,60 @@ class GitPollingRunner:
 
     def _initialize_last_processed_commits(self) -> None:
         for configured_job in self.runner_config.jobs:
+            resolved_branch = self._resolve_branch_for_job(configured_job)
+            if resolved_branch is None:
+                # Dynamic-branch job whose working tree is detached or
+                # unreadable at startup. Leave the cursor empty; the first
+                # successful poll will seed it.
+                self._last_processed_commit_by_job_name[configured_job.name] = ""
+                log.info("job %s: initial commit <unresolved>", configured_job.name)
+                continue
             try:
                 # Seed each job from the current local branch tip so a service
                 # restart does not replay the last successfully fetched commit.
                 initial_commit_sha = git_get_local_branch_commit_sha(
                     configured_job.repo_path,
-                    configured_job.branch_name,
+                    resolved_branch,
                     run_as_user_name=configured_job.run_as_user,
                 )
             except GitError as e:
                 log.warning(
                     "job %s: cannot read initial commit for %s: %s",
                     configured_job.name,
-                    configured_job.branch_name,
+                    resolved_branch,
                     e,
                 )
                 initial_commit_sha = ""
             self._last_processed_commit_by_job_name[configured_job.name] = initial_commit_sha
             log.info(
-                "job %s: initial commit %s",
+                "job %s: initial commit %s on %s",
                 configured_job.name,
                 _short_commit_sha(initial_commit_sha),
+                resolved_branch,
             )
 
+    def _resolve_branch_for_job(self, configured_job: ConfiguredJob) -> str | None:
+        """Return the branch this poll should act on, or ``None`` if a
+        dynamic-branch job's working tree is detached / unresolvable."""
+        if configured_job.branch_name is not None:
+            return configured_job.branch_name
+        return git_get_current_branch(
+            configured_job.repo_path,
+            run_as_user_name=configured_job.run_as_user,
+        )
+
     def _poll_job_for_new_commit(self, configured_job: ConfiguredJob) -> None:
+        resolved_branch = self._resolve_branch_for_job(configured_job)
+        if resolved_branch is None:
+            log.warning(
+                "job %s: cannot resolve current branch (detached HEAD?); skipping",
+                configured_job.name,
+            )
+            return
         try:
             fetched_commit_sha = git_fetch_branch_from_origin(
                 configured_job.repo_path,
-                configured_job.branch_name,
+                resolved_branch,
                 run_as_user_name=configured_job.run_as_user,
             )
         except GitError as e:
@@ -116,7 +143,7 @@ class GitPollingRunner:
         try:
             git_force_checkout_branch_to_commit(
                 configured_job.repo_path,
-                configured_job.branch_name,
+                resolved_branch,
                 fetched_commit_sha,
                 run_as_user_name=configured_job.run_as_user,
             )
@@ -142,12 +169,13 @@ class GitPollingRunner:
             # action, not an automatic tight loop.
             self._last_processed_commit_by_job_name[configured_job.name] = fetched_commit_sha
             return
-        self._run_job_script_for_commit(configured_job, fetched_commit_sha)
+        self._run_job_script_for_commit(configured_job, resolved_branch, fetched_commit_sha)
         self._last_processed_commit_by_job_name[configured_job.name] = fetched_commit_sha
 
     def _run_job_script_for_commit(
         self,
         configured_job: ConfiguredJob,
+        branch_name: str,
         commit_sha: str,
     ) -> None:
         # Export execution context so scripts can log or branch on it without
@@ -155,7 +183,7 @@ class GitPollingRunner:
         script_environment = {
             **os.environ,
             "FETCH_RUNNER_JOB": configured_job.name,
-            "FETCH_RUNNER_BRANCH": configured_job.branch_name,
+            "FETCH_RUNNER_BRANCH": branch_name,
             "FETCH_RUNNER_COMMIT": commit_sha,
             "FETCH_RUNNER_REPO": str(configured_job.repo_path),
         }

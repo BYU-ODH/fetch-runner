@@ -91,6 +91,27 @@ def test_load_happy_path(tmp_path: Path):
     assert runner_config.jobs[0].script_timeout_seconds is None
 
 
+def test_load_allows_branch_to_be_omitted(tmp_path: Path):
+    user_name = get_current_real_uid_user_name()
+    repo_path = _create_repo_directory(tmp_path / "repo")
+    script_path = _create_guarded_script(tmp_path / "deploy.sh", user_name)
+    config_path = _write_jobs_toml(
+        tmp_path / "jobs.toml",
+        f"""
+[general]
+user = "{user_name}"
+poll_interval_seconds = 30
+
+[[jobs]]
+name = "j1"
+path = "{repo_path}"
+script = "{script_path}"
+""",
+    )
+    runner_config = load_config(config_path)
+    assert runner_config.jobs[0].branch_name is None
+
+
 def test_load_rejects_wrong_user(tmp_path: Path):
     # A jobs.toml whose user does not match the running user must be refused.
     repo_path = _create_repo_directory(tmp_path / "repo")
