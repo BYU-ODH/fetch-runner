@@ -22,12 +22,14 @@ def _make_job(
     name: str,
     run_as_user: str,
     script_path: str = "/srv/app1/repo/deploy.sh",
+    script_args: tuple[str, ...] = (),
 ) -> ConfiguredJob:
     return ConfiguredJob(
         name=name,
         repo_path=Path(script_path).parent,
         branch_name="main",
         script_path=Path(script_path),
+        script_args=script_args,
         script_timeout_seconds=None,
         run_as_user=run_as_user,
     )
@@ -79,6 +81,49 @@ def test_render_sudoers_fragment_deduplicates_shared_script_and_runas():
     assert rendered_fragment.count("NOPASSWD: /srv/app1/shared/deploy.sh") == 1
     # Two jobs share the same run_as, so only one git rule should be emitted.
     assert rendered_fragment.count(f"NOPASSWD: {git_absolute_path}") == 1
+
+
+def test_render_sudoers_fragment_includes_script_args(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git not on PATH")
+    runner_config = _make_runner_config(
+        _make_job(
+            "api",
+            run_as_user="app1",
+            script_path="/srv/app1/api/deploy.sh",
+            script_args=("--env=prod", "frontend"),
+        ),
+    )
+    rendered_fragment = render_sudoers_fragment(runner_config)
+    # `=` is a sudoers special and must be backslash-escaped to appear
+    # literally in the matched command spec.
+    expected_command_spec = "/srv/app1/api/deploy.sh --env\\=prod frontend"
+    assert f"fetch-runner ALL=(app1) NOPASSWD: {expected_command_spec}" in rendered_fragment
+    assert f"Defaults!{expected_command_spec} env_keep" in rendered_fragment
+
+
+def test_render_sudoers_fragment_separates_same_script_with_different_args(tmp_path: Path):
+    # Two jobs invoking the same script with different args must produce two
+    # distinct NOPASSWD rules — sudo matches args literally.
+    if shutil.which("git") is None:
+        pytest.skip("git not on PATH")
+    runner_config = _make_runner_config(
+        _make_job(
+            "a",
+            run_as_user="app1",
+            script_path="/srv/app1/api/deploy.sh",
+            script_args=("frontend",),
+        ),
+        _make_job(
+            "b",
+            run_as_user="app1",
+            script_path="/srv/app1/api/deploy.sh",
+            script_args=("backend",),
+        ),
+    )
+    rendered_fragment = render_sudoers_fragment(runner_config)
+    assert "NOPASSWD: /srv/app1/api/deploy.sh frontend" in rendered_fragment
+    assert "NOPASSWD: /srv/app1/api/deploy.sh backend" in rendered_fragment
 
 
 def test_render_sudoers_fragment_skips_matching_runas_but_keeps_diverging(tmp_path: Path):

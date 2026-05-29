@@ -460,6 +460,70 @@ run_as = "{run_as_user_name}"
         load_config(config_path)
 
 
+def test_load_args_default_to_empty(tmp_path: Path):
+    user_name = get_current_real_uid_user_name()
+    config_path = _write_minimal_valid_jobs_toml(tmp_path, user_name=user_name)
+    runner_config = load_config(config_path)
+    assert runner_config.jobs[0].script_args == ()
+
+
+def test_load_accepts_valid_args(tmp_path: Path):
+    user_name = get_current_real_uid_user_name()
+    config_path = _write_minimal_valid_jobs_toml(
+        tmp_path,
+        user_name=user_name,
+        extra_job_lines='args = ["--env=prod", "frontend"]',
+    )
+    runner_config = load_config(config_path)
+    assert runner_config.jobs[0].script_args == ("--env=prod", "frontend")
+
+
+def test_load_rejects_args_with_shell_metacharacters(tmp_path: Path):
+    user_name = get_current_real_uid_user_name()
+    config_path = _write_minimal_valid_jobs_toml(
+        tmp_path,
+        user_name=user_name,
+        extra_job_lines='args = ["frontend; rm -rf /"]',
+    )
+    with pytest.raises(ConfigError, match="disallowed characters"):
+        load_config(config_path)
+
+
+def test_load_rejects_args_with_whitespace(tmp_path: Path):
+    # Whitespace would split tokens in a sudoers rule, so embedded spaces in
+    # a single arg are refused — operators should pass two separate strings.
+    user_name = get_current_real_uid_user_name()
+    config_path = _write_minimal_valid_jobs_toml(
+        tmp_path,
+        user_name=user_name,
+        extra_job_lines='args = ["hello world"]',
+    )
+    with pytest.raises(ConfigError, match="disallowed characters"):
+        load_config(config_path)
+
+
+def test_load_rejects_args_not_an_array(tmp_path: Path):
+    user_name = get_current_real_uid_user_name()
+    config_path = _write_minimal_valid_jobs_toml(
+        tmp_path,
+        user_name=user_name,
+        extra_job_lines='args = "frontend"',
+    )
+    with pytest.raises(ConfigError, match="array of strings"):
+        load_config(config_path)
+
+
+def test_load_rejects_empty_arg(tmp_path: Path):
+    user_name = get_current_real_uid_user_name()
+    config_path = _write_minimal_valid_jobs_toml(
+        tmp_path,
+        user_name=user_name,
+        extra_job_lines='args = ["ok", ""]',
+    )
+    with pytest.raises(ConfigError, match="non-empty string"):
+        load_config(config_path)
+
+
 def test_load_rejects_zero_poll_interval(tmp_path: Path):
     user_name = get_current_real_uid_user_name()
     repo_path = _create_repo_directory(tmp_path / "repo")

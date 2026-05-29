@@ -66,7 +66,11 @@ def render_canonical_script_guard(user_name: str) -> str:
     return _GUARD_TEMPLATE.format(user=user_name)
 
 
-def render_sudo_argv(run_as_user_name: str, script_path: Path) -> list[str]:
+def render_sudo_argv(
+    run_as_user_name: str,
+    script_path: Path,
+    script_args: tuple[str, ...] = (),
+) -> list[str]:
     """Build the argv used to execute ``script_path`` as ``run_as_user_name``.
 
     ``-n`` makes sudo fail immediately if a password is required (no tty).
@@ -83,6 +87,7 @@ def render_sudo_argv(run_as_user_name: str, script_path: Path) -> list[str]:
         preserve_env_flag,
         "--",
         str(script_path),
+        *script_args,
     ]
 
 

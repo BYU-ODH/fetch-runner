@@ -18,7 +18,12 @@ def _not_running_as_root():
         pytest.skip("runner tests require a non-root test user")
 
 
-def _make_runner(run_as_user: str, script_path: Path, runtime_user: str | None = None):
+def _make_runner(
+    run_as_user: str,
+    script_path: Path,
+    runtime_user: str | None = None,
+    script_args: tuple[str, ...] = (),
+):
     runtime_user_name = runtime_user or get_current_real_uid_user_name()
     runner_config = RunnerConfig(
         runtime_user=runtime_user_name,
@@ -29,6 +34,7 @@ def _make_runner(run_as_user: str, script_path: Path, runtime_user: str | None =
                 repo_path=script_path.parent,
                 branch_name="main",
                 script_path=script_path,
+                script_args=script_args,
                 script_timeout_seconds=None,
                 run_as_user=run_as_user,
             ),
@@ -66,6 +72,44 @@ def test_runner_invokes_script_via_sudo_when_run_as_differs(tmp_path: Path):
     assert invocation_argv[2:4] == ["-u", "someone-else"]
     assert invocation_argv[-2] == "--"
     assert invocation_argv[-1] == str(script_path)
+
+
+def test_runner_appends_script_args_in_direct_mode(tmp_path: Path):
+    script_path = tmp_path / "deploy.sh"
+    script_path.write_text("#!/bin/sh\n")
+    script_path.chmod(0o755)
+    current_user_name = get_current_real_uid_user_name()
+    runner, job = _make_runner(
+        run_as_user=current_user_name,
+        script_path=script_path,
+        script_args=("--env=prod", "frontend"),
+    )
+    with mock.patch("fetch_runner.runner.subprocess.run") as mocked_subprocess_run:
+        mocked_subprocess_run.return_value = mock.Mock(returncode=0)
+        runner._run_job_script_for_commit(job, "main", "deadbeef" * 5)
+    invocation_argv = mocked_subprocess_run.call_args.args[0]
+    assert invocation_argv == [str(script_path), "--env=prod", "frontend"]
+
+
+def test_runner_appends_script_args_after_sudo_dashdash(tmp_path: Path):
+    script_path = tmp_path / "deploy.sh"
+    script_path.write_text("#!/bin/sh\n")
+    script_path.chmod(0o755)
+    runner, job = _make_runner(
+        run_as_user="someone-else",
+        script_path=script_path,
+        script_args=("--env=prod", "frontend"),
+    )
+    with mock.patch("fetch_runner.runner.subprocess.run") as mocked_subprocess_run:
+        mocked_subprocess_run.return_value = mock.Mock(returncode=0)
+        runner._run_job_script_for_commit(job, "main", "cafef00d" * 5)
+    invocation_argv = mocked_subprocess_run.call_args.args[0]
+    dashdash_index = invocation_argv.index("--")
+    assert invocation_argv[dashdash_index + 1 :] == [
+        str(script_path),
+        "--env=prod",
+        "frontend",
+    ]
 
 
 def test_runner_passes_fetch_runner_env_vars_through_subprocess(tmp_path: Path):

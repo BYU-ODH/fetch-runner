@@ -190,11 +190,12 @@ class GitPollingRunner:
         # Skip sudo when run_as matches the service user — single-user setups
         # then need no sudoers rule at all.
         if configured_job.run_as_user == self.runner_config.runtime_user:
-            script_argv = [str(configured_job.script_path)]
+            script_argv = [str(configured_job.script_path), *configured_job.script_args]
         else:
             script_argv = render_sudo_argv(
                 configured_job.run_as_user,
                 configured_job.script_path,
+                configured_job.script_args,
             )
         log.info(
             "job %s: running %s as %s",

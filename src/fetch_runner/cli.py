@@ -124,15 +124,24 @@ def render_sudoers_fragment(runner_config: RunnerConfig) -> str:
         raise SystemExit(f"fetch-runner --print-sudoers: cannot resolve git path: {e}") from e
 
     unique_runas_users = sorted({j.run_as_user for j in cross_user_jobs})
-    unique_script_paths = sorted({str(j.script_path) for j in cross_user_jobs})
-    unique_runas_and_script_pairs = sorted(
-        {(j.run_as_user, str(j.script_path)) for j in cross_user_jobs}
+    # Defaults!cmd matches by command spec including args, so each distinct
+    # (script, args) needs its own env_keep line. Dedup on the rendered
+    # command string so two jobs sharing the exact invocation only produce
+    # one line.
+    unique_command_specs = sorted(
+        {_render_sudoers_command_spec(j.script_path, j.script_args) for j in cross_user_jobs}
+    )
+    unique_runas_and_command_pairs = sorted(
+        {
+            (j.run_as_user, _render_sudoers_command_spec(j.script_path, j.script_args))
+            for j in cross_user_jobs
+        }
     )
     env_keep_value = " ".join(PRESERVED_ENVIRONMENT_VARIABLE_NAMES)
 
     rendered_lines.append("\n# Preserve FETCH_RUNNER_* env vars when running deploy scripts.\n")
-    for script_path in unique_script_paths:
-        rendered_lines.append(f'Defaults!{script_path} env_keep += "{env_keep_value}"\n')
+    for command_spec in unique_command_specs:
+        rendered_lines.append(f'Defaults!{command_spec} env_keep += "{env_keep_value}"\n')
 
     rendered_lines.append("\n# Run git as each run_as user (repos are owned by that user).\n")
     for run_as_user_name in unique_runas_users:
@@ -141,11 +150,31 @@ def render_sudoers_fragment(runner_config: RunnerConfig) -> str:
         )
 
     rendered_lines.append("\n# Run each deploy script as its run_as user.\n")
-    for run_as_user_name, script_path in unique_runas_and_script_pairs:
+    for run_as_user_name, command_spec in unique_runas_and_command_pairs:
         rendered_lines.append(
-            f"{runner_config.runtime_user} ALL=({run_as_user_name}) NOPASSWD: {script_path}\n"
+            f"{runner_config.runtime_user} ALL=({run_as_user_name}) NOPASSWD: {command_spec}\n"
         )
     return "".join(rendered_lines)
+
+
+# Characters that sudoers treats specially inside a command spec and must be
+# backslash-escaped to appear literally. Whitespace separates argv tokens, so
+# embedded whitespace would also need escaping — but the config validator
+# rejects it before we get here, so we don't need to handle it.
+_SUDOERS_ESCAPE_CHARACTERS = frozenset(",:=\\")
+
+
+def _escape_sudoers_token(raw_token: str) -> str:
+    return "".join(("\\" + c) if c in _SUDOERS_ESCAPE_CHARACTERS else c for c in raw_token)
+
+
+def _render_sudoers_command_spec(script_path: Path, script_args: tuple[str, ...]) -> str:
+    """Render the command-with-args portion of a sudoers rule. Sudoers matches
+    args literally when present, so the rule must list the exact args
+    fetch-runner will pass — regenerate after any config change.
+    """
+    tokens = [str(script_path), *(_escape_sudoers_token(a) for a in script_args)]
+    return " ".join(tokens)
 
 
 def _configure_logging(verbose: bool) -> None:
