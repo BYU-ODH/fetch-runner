@@ -22,8 +22,9 @@ import pwd
 from dataclasses import dataclass
 from pathlib import Path
 
-GUARD_BEGIN_MARKER_PREFIX = "# >>> fetch-runner-guard:BEGIN"
+GUARD_BEGIN_MARKER = "# >>> fetch-runner-guard:BEGIN"
 GUARD_END_MARKER = "# <<< fetch-runner-guard:END"
+GUARD_USER_ASSIGNMENT_PREFIX = "DEPLOY_USER="
 
 # Env vars fetch-runner sets per script. Sudo's --preserve-env= and sudoers
 # env_keep both render from this tuple to prevent drift.
@@ -38,10 +39,11 @@ PRESERVED_ENVIRONMENT_VARIABLE_NAMES: tuple[str, ...] = (
 # bytes against the rendered output exactly, so "helpful" rewrites do not
 # silently weaken the check.
 _GUARD_TEMPLATE = (
-    "# >>> fetch-runner-guard:BEGIN user={user}\n"
-    'if [ "$(whoami)" != "{user}" ] || [ "$(id -u)" -eq 0 ]; then\n'
+    f"{GUARD_BEGIN_MARKER}\n"
+    f"{GUARD_USER_ASSIGNMENT_PREFIX}{{user}}\n"
+    'if [ "$(whoami)" != "$DEPLOY_USER" ] || [ "$(id -u)" -eq 0 ]; then\n'
     "    printf 'fetch-runner-guard: refusing to run as %s (uid %s);"
-    ' required: {user}, non-root\\n\' "$(whoami)" "$(id -u)" >&2\n'
+    ' required: %s, non-root\\n\' "$(whoami)" "$(id -u)" "$DEPLOY_USER" >&2\n'
     "    exit 1\n"
     "fi\n"
     f"{GUARD_END_MARKER}\n"
@@ -131,17 +133,10 @@ def validate_canonical_script_guard(
     if script_lines and script_lines[0].startswith("#!"):
         current_line_index = 1
 
-    expected_guard_begin_marker = f"# >>> fetch-runner-guard:BEGIN user={expected_user_name}"
     while current_line_index < len(script_lines):
         stripped_line = script_lines[current_line_index].strip()
-        if stripped_line == expected_guard_begin_marker:
+        if stripped_line == GUARD_BEGIN_MARKER:
             break
-        if stripped_line.startswith(GUARD_BEGIN_MARKER_PREFIX):
-            return ScriptGuardValidation(
-                False,
-                f"{script_path}:{current_line_index + 1}: guard BEGIN marker targets a different "
-                f"user (expected {expected_user_name!r}); found {stripped_line!r}",
-            )
         # Allow only comments before the guard. Even benign shell code like
         # `set -e` can change behavior before the identity check runs.
         if stripped_line == "" or stripped_line.startswith("#"):
@@ -157,6 +152,20 @@ def validate_canonical_script_guard(
             False,
             f"{script_path}: canonical guard block for user {expected_user_name!r} not found",
         )
+
+    user_assignment_line_index = current_line_index + 1
+    if user_assignment_line_index < len(script_lines):
+        user_assignment_line = script_lines[user_assignment_line_index]
+        expected_user_assignment = f"{GUARD_USER_ASSIGNMENT_PREFIX}{expected_user_name}"
+        if (
+            user_assignment_line.startswith(GUARD_USER_ASSIGNMENT_PREFIX)
+            and user_assignment_line != expected_user_assignment
+        ):
+            return ScriptGuardValidation(
+                False,
+                f"{script_path}:{user_assignment_line_index + 1}: guard targets a different "
+                f"user (expected {expected_user_name!r}); found {user_assignment_line!r}",
+            )
 
     expected_guard_lines = render_canonical_script_guard(expected_user_name).splitlines()
     for guard_line_offset, expected_line in enumerate(expected_guard_lines):
