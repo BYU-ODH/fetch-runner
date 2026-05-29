@@ -27,6 +27,12 @@ ExecStart=/usr/local/bin/fetch-runner /etc/fetch-runner/jobs.toml
 # The rest of the filesystem is read-only thanks to ProtectSystem.
 ReadWritePaths=/srv
 
+# Creates /run/fetch-runner owned by User=/Group= above. fetch-runner places
+# per-job flock files there to prevent two ticks of the same job from
+# deploying concurrently. systemd recreates the directory on each start, so
+# stale lock files cannot survive a service restart.
+RuntimeDirectory=fetch-runner
+
 # ===========================================================================
 # DO NOT MODIFY below this line casually.
 # These settings are the sandbox that keeps a long-running deploy service from
