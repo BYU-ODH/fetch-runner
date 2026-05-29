@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "fetch-runner"
-version = "0.1.1"
+version = "0.1.2"
 description = "Poll git branches and run scripts when new commits arrive"
 readme = "README.md"
 requires-python = ">=3.11"
