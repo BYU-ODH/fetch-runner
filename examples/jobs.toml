@@ -6,6 +6,10 @@
 #   runs its git ops and script. Defaults to [general].user. When set,
 #   sudo is used and a sudoers rule is required
 #   (see `fetch-runner --print-sudoers <this-file>`).
+# [[jobs]].branch (optional) — fixed branch to track. Omit to follow
+#   whatever branch is currently checked out in the working tree, so an
+#   operator can `git checkout` a different branch and fetch-runner will
+#   start tracking it on the next poll. Detached HEAD is skipped.
 #
 # Convention: each repo lives at /srv/<run_as>/<repo_name>/.
 

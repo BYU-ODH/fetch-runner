@@ -29,7 +29,10 @@ class ConfigError(Exception):
 class ConfiguredJob:
     name: str
     repo_path: Path
-    branch_name: str
+    # None means "follow whatever branch is currently checked out in the
+    # working tree" — resolved live on each poll. Useful for dev deployments
+    # where the operator switches branches manually.
+    branch_name: str | None
     script_path: Path
     script_timeout_seconds: int | None
     # The user this job's git ops and script run as. Defaults to
@@ -123,23 +126,29 @@ def load_config(config_path: Path) -> RunnerConfig:
                 f"{config_path}: {section_label}.path {repo_path} is not a git repository"
             )
 
-        branch_name = _require_non_empty_string(
-            raw_job_section,
-            "branch",
-            section_label,
-            config_path,
-        )
-        # Branch names are passed as argv entries, but git still interprets
-        # leading dashes and a wide range of refname syntax. A conservative
-        # character filter keeps the allowed surface area easy to reason about.
-        if branch_name.startswith("-") or any(
-            char in _DISALLOWED_BRANCH_CHARACTERS for char in branch_name
-        ):
-            raise ConfigError(
-                f"{config_path}: {section_label}.branch contains unsafe characters: {branch_name!r}"
-            )
-        if len(branch_name) > 128:
-            raise ConfigError(f"{config_path}: {section_label}.branch too long")
+        # Omitting `branch` means "follow the current checked-out branch" —
+        # resolved live on each poll. Present-but-empty is still rejected.
+        raw_branch = raw_job_section.get("branch")
+        if raw_branch is None:
+            branch_name: str | None = None
+        else:
+            if not isinstance(raw_branch, str) or not raw_branch:
+                raise ConfigError(
+                    f"{config_path}: {section_label}.branch must be a non-empty string"
+                )
+            branch_name = raw_branch
+            # Branch names are passed as argv entries, but git still interprets
+            # leading dashes and a wide range of refname syntax. A conservative
+            # character filter keeps the allowed surface area easy to reason about.
+            if branch_name.startswith("-") or any(
+                char in _DISALLOWED_BRANCH_CHARACTERS for char in branch_name
+            ):
+                raise ConfigError(
+                    f"{config_path}: {section_label}.branch contains unsafe characters: "
+                    f"{branch_name!r}"
+                )
+            if len(branch_name) > 128:
+                raise ConfigError(f"{config_path}: {section_label}.branch too long")
 
         script_path = Path(
             _require_non_empty_string(raw_job_section, "script", section_label, config_path)

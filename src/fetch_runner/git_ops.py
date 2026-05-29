@@ -68,6 +68,25 @@ def _run_git_command(
     return result.stdout.strip()
 
 
+def git_get_current_branch(
+    repo_path: Path,
+    *,
+    run_as_user_name: str,
+) -> str | None:
+    """Return the branch HEAD points at, or ``None`` for detached HEAD."""
+    try:
+        return _run_git_command(
+            repo_path,
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "HEAD",
+            run_as_user_name=run_as_user_name,
+        )
+    except GitError:
+        return None
+
+
 def git_get_local_branch_commit_sha(
     repo_path: Path,
     branch_name: str,

@@ -44,14 +44,23 @@ StandardError=journal
 
 # NoNewPrivileges / RestrictSUIDSGID block sudo's setuid transition, so
 # they are off here. The sudoers fragment is what bounds the privilege.
-# If every job uses run_as = [general].user, you can re-enable both.
-CapabilityBoundingSet=
+# If every job uses run_as = [general].user, you can drop the capability
+# list below to empty and set NoNewPrivileges=true and RestrictSUIDSGID=true.
+#
+# The bounding set must permit the caps sudo needs to switch uid/gid and
+# initialize its audit plugin
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE CAP_SYS_RESOURCE CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
+
+# AmbientCapabilities stays empty — sudo gains privilege via its setuid-root
+# binary, not via ambient inheritance. The CAP_SETUID bounding set above permits
+# it to keep the caps it needs after the setuid exec.
 AmbientCapabilities=
 
-# Keep the filesystem read-only by default, then punch narrow write holes back
-# in with `ReadWritePaths=` above for the repos and app state that deployments
-# genuinely need to modify.
-ProtectSystem=strict
+# Keep /usr, /boot, /efi, and /etc read-only, then punch narrow write holes
+# back in with `ReadWritePaths=` above for the repos and app state that
+# deployments genuinely need to modify. Using `strict` breaks the setuid
+# transition because sudo needs to write runtime state under /run and /var.
+ProtectSystem=full
 
 # Deploy scripts should not need the service user's home directory.
 ProtectHome=read-only
@@ -69,9 +78,12 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 
-# Hide unrelated processes from the service; deploy hooks should not be
-# inspecting the rest of the machine.
-ProtectProc=invisible
+# Left at `default` (no hiding) because `invisible` makes /proc/1 unreadable
+# to the sandbox, and PAM (via sudo) then logs a stream of "Could not read
+# /proc/1/limits" warnings on every fetch. Tighten to `invisible` if you can
+# live with the noise — deploy hooks have no legitimate need to inspect
+# other processes.
+ProtectProc=default
 
 # Kernel / namespace hardening.
 LockPersonality=true
