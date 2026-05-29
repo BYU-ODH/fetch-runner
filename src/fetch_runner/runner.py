@@ -19,6 +19,7 @@ import os
 import stat
 import subprocess
 import threading
+from pathlib import Path
 
 from .config import ConfiguredJob
 from .config import RunnerConfig
@@ -29,13 +30,21 @@ from .git_ops import git_get_current_branch
 from .git_ops import git_get_local_branch_commit_sha
 from .guard import render_sudo_argv
 from .guard import validate_canonical_script_guard
+from .locking import DEFAULT_LOCK_DIRECTORY
+from .locking import JobBusyError
+from .locking import acquire_job_lock
 
 log = logging.getLogger("fetch_runner")
 
 
 class GitPollingRunner:
-    def __init__(self, runner_config: RunnerConfig) -> None:
+    def __init__(
+        self,
+        runner_config: RunnerConfig,
+        lock_directory: Path = DEFAULT_LOCK_DIRECTORY,
+    ) -> None:
         self.runner_config = runner_config
+        self._lock_directory = lock_directory
         self._last_processed_commit_by_job_name: dict[str, str] = {}
         self._stop_requested = threading.Event()
 
@@ -55,7 +64,15 @@ class GitPollingRunner:
                 if self._stop_requested.is_set():
                     break
                 try:
-                    self._poll_job_for_new_commit(configured_job)
+                    with acquire_job_lock(configured_job.name, self._lock_directory):
+                        self._poll_job_for_new_commit(configured_job)
+                except JobBusyError:
+                    # Previous tick's deploy is still running. Skip this tick
+                    # rather than queue — next tick will pick up the work.
+                    log.info(
+                        "job %s: previous run still in progress; skipping",
+                        configured_job.name,
+                    )
                 except Exception:
                     log.exception("job %s: unexpected error", configured_job.name)
             self._stop_requested.wait(self.runner_config.poll_interval_seconds)
@@ -190,11 +207,12 @@ class GitPollingRunner:
         # Skip sudo when run_as matches the service user — single-user setups
         # then need no sudoers rule at all.
         if configured_job.run_as_user == self.runner_config.runtime_user:
-            script_argv = [str(configured_job.script_path)]
+            script_argv = [str(configured_job.script_path), *configured_job.script_args]
         else:
             script_argv = render_sudo_argv(
                 configured_job.run_as_user,
                 configured_job.script_path,
+                configured_job.script_args,
             )
         log.info(
             "job %s: running %s as %s",

@@ -10,6 +10,10 @@
 #   whatever branch is currently checked out in the working tree, so an
 #   operator can `git checkout` a different branch and fetch-runner will
 #   start tracking it on the next poll. Detached HEAD is skipped.
+# [[jobs]].args (optional) — extra argv passed to the script. Each entry
+#   must be a single token (no whitespace or shell metacharacters); use
+#   separate strings instead of one quoted blob. Args appear in the
+#   generated sudoers rule, so regenerate after changing them.
 #
 # Convention: each repo lives at /srv/<run_as>/<repo_name>/.
 
@@ -29,4 +33,5 @@ name = "my example web"
 path = "/srv/app2/web"
 branch = "production"
 script = "/srv/app2/web/deploy.sh"
+args = ["--env=prod", "frontend"]
 run_as = "app2"

@@ -70,6 +70,9 @@ Per `[[jobs]]`:
 - `path` — absolute repo path, owned and writable by `run_as`
 - `branch` — branch to watch
 - `script` — absolute script path
+- `args` — optional list of argv strings passed to the script (each a single
+  token; no whitespace or shell metacharacters). Included in the generated
+  sudoers rule, so regenerate after any change.
 - `run_as` — optional; defaults to `[general].user`
 - `timeout_seconds` — optional script timeout
 

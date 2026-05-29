@@ -34,6 +34,7 @@ class ConfiguredJob:
     # where the operator switches branches manually.
     branch_name: str | None
     script_path: Path
+    script_args: tuple[str, ...]
     script_timeout_seconds: int | None
     # The user this job's git ops and script run as. Defaults to
     # ``RunnerConfig.runtime_user`` when ``run_as`` is omitted in TOML.
@@ -49,9 +50,17 @@ class RunnerConfig:
 
 _ALLOWED_TOP_LEVEL_KEYS = {"general", "jobs"}
 _ALLOWED_GENERAL_KEYS = {"user", "poll_interval_seconds"}
-_ALLOWED_JOB_KEYS = {"name", "path", "branch", "script", "timeout_seconds", "run_as"}
+_ALLOWED_JOB_KEYS = {"name", "path", "branch", "script", "args", "timeout_seconds", "run_as"}
 
 _DISALLOWED_BRANCH_CHARACTERS = frozenset(" \t\n\r\x00'\";|&`$<>()[]{}\\*?")
+
+# Conservative allowlist for script argument characters. Excludes shell
+# metacharacters, whitespace, quotes, glob characters, and control bytes so
+# args can be embedded in a sudoers rule (with a small set of mandatory
+# backslash-escapes; see ``_escape_sudoers_token``) without ambiguity.
+_ALLOWED_ARG_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./=:+@,%"
+)
 
 
 def load_config(config_path: Path) -> RunnerConfig:
@@ -154,6 +163,8 @@ def load_config(config_path: Path) -> RunnerConfig:
             _require_non_empty_string(raw_job_section, "script", section_label, config_path)
         ).resolve()
 
+        script_args = _parse_script_args(raw_job_section, section_label, config_path)
+
         # Resolve via passwd at load time so a typo fails fast instead of
         # surfacing as a confusing sudo error during the first poll.
         run_as_user = raw_job_section.get("run_as", runtime_user)
@@ -190,6 +201,7 @@ def load_config(config_path: Path) -> RunnerConfig:
                 repo_path=repo_path,
                 branch_name=branch_name,
                 script_path=script_path,
+                script_args=script_args,
                 script_timeout_seconds=script_timeout_seconds,
                 run_as_user=run_as_user,
             )
@@ -229,6 +241,38 @@ def _validate_job_script_file(
             f"{config_path}: {section_label}.script failed guard validation: "
             f"{guard_validation.error_reason}"
         )
+
+
+def _parse_script_args(
+    raw_job_section: dict,
+    section_label: str,
+    config_path: Path,
+) -> tuple[str, ...]:
+    """Validate and return ``[[jobs]].args``. Each element must be a non-empty
+    string drawn from a conservative character set so it can be embedded in a
+    sudoers rule without ambiguity. A leading dash is allowed (common in CLI
+    flags); the sudoers escape handler covers the few remaining specials.
+    """
+    raw_args = raw_job_section.get("args")
+    if raw_args is None:
+        return ()
+    if not isinstance(raw_args, list):
+        raise ConfigError(f"{config_path}: {section_label}.args must be an array of strings")
+    validated_args: list[str] = []
+    for arg_index, raw_arg in enumerate(raw_args):
+        arg_label = f"{section_label}.args[{arg_index}]"
+        if not isinstance(raw_arg, str) or not raw_arg:
+            raise ConfigError(f"{config_path}: {arg_label} must be a non-empty string")
+        if len(raw_arg) > 256:
+            raise ConfigError(f"{config_path}: {arg_label} too long")
+        disallowed = sorted({c for c in raw_arg if c not in _ALLOWED_ARG_CHARS})
+        if disallowed:
+            raise ConfigError(
+                f"{config_path}: {arg_label} contains disallowed characters {disallowed!r}: "
+                f"{raw_arg!r}"
+            )
+        validated_args.append(raw_arg)
+    return tuple(validated_args)
 
 
 def _reject_unknown_keys(raw_section: dict, allowed_keys: set[str], section_label: str) -> None:
