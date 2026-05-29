@@ -17,8 +17,8 @@ from fetch_runner.guard import validate_canonical_script_guard
 
 def test_render_guard_embeds_user_everywhere():
     rendered_guard = render_canonical_script_guard("deploy")
-    assert "user=deploy" in rendered_guard
-    assert '"$(whoami)" != "deploy"' in rendered_guard
+    assert "DEPLOY_USER=deploy\n" in rendered_guard
+    assert '"$(whoami)" != "$DEPLOY_USER"' in rendered_guard
     assert '"$(id -u)" -eq 0' in rendered_guard
     assert rendered_guard.endswith("# <<< fetch-runner-guard:END\n")
 
@@ -90,7 +90,7 @@ def test_validate_script_guard_rejects_code_before_guard(tmp_path: Path):
 def test_validate_script_guard_detects_flipped_comparator(tmp_path: Path):
     # The most dangerous form of tampering: a check that always passes.
     canonical_guard = render_canonical_script_guard("deploy")
-    tampered_guard = canonical_guard.replace('!= "deploy"', '== "deploy"')
+    tampered_guard = canonical_guard.replace('!= "$DEPLOY_USER"', '= "$DEPLOY_USER"')
     assert tampered_guard != canonical_guard
     script_path = _write_script_file(
         tmp_path / "s.sh",
